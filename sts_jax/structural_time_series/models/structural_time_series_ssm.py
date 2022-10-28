@@ -6,6 +6,7 @@ import jax.random as jr
 import jax.scipy as jsp
 from jax.tree_util import tree_map
 from jaxopt import LBFGS
+import dynamax
 from dynamax.abstractions import SSM
 from dynamax.cond_moments_gaussian_filter.cmgf import (
     iterated_conditional_moments_gaussian_filter as cmgf_filt,

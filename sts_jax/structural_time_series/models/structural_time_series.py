@@ -5,9 +5,10 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.scipy as jsp
 from jax import vmap, jit
+import dynamax
 from dynamax.distributions import InverseWishart as IW
 from dynamax.distributions import MatrixNormalPrecision as MN
-from dynamax.structural_time_series.models.structural_time_series_ssm import GaussianSSM, PoissonSSM
+from ssm_jax.structural_time_series.models.structural_time_series_ssm import GaussianSSM, PoissonSSM
 from tensorflow_probability.substrates.jax.distributions import MultivariateNormalFullCovariance as MVN
 
 

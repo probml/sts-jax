@@ -1,7 +1,7 @@
 import numpy as np
 import jax.numpy as jnp
 import jax.random as jr
-import dynamax.structural_time_series.models.structural_time_series as sts
+import sts_jax.structural_time_series.models.structural_time_series as sts
 
 
 # CO2 readings from Mauna Loa observatory, monthly beginning January 1966
