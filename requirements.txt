@@ -10,4 +10,4 @@ flax
 scikit-learn
 blackjax
 jaxopt
-dynamax
+#dynamax
