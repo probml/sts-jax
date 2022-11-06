@@ -6,15 +6,14 @@ import jax.random as jr
 import jax.scipy as jsp
 from jax.tree_util import tree_map
 from jaxopt import LBFGS
-import dynamax
 from dynamax.abstractions import SSM
-from dynamax.cond_moments_gaussian_filter.cmgf import (
+from dynamax.generalized_gaussian_ssm.generalized_gaussian_ssm import ParamsGGSSM
+from dynamax.generalized_gaussian_ssm.conditional_moments_gaussian_filter import (
     iterated_conditional_moments_gaussian_filter as cmgf_filt,
     iterated_conditional_moments_gaussian_smoother as cmgf_smooth,
     EKFIntegrals)
-from dynamax.cond_moments_gaussian_filter.generalized_gaussian_ssm import GGSSMParams
 from dynamax.linear_gaussian_ssm.inference import (
-    LGSSMParams,
+    ParamsLGSSMMoment,
     lgssm_filter,
     lgssm_smoother,
     lgssm_posterior_sample)
@@ -476,7 +475,7 @@ class GaussianSSM(_StructuralTimeSeriesSSM):
         obs_cov = params['emission_covariance']
         emission_input_weights = params['regression_weights']
         input_dim = emission_input_weights.shape[-1]
-        return LGSSMParams(initial_mean=self.initial_mean,
+        return ParamsLGSSMMoment(initial_mean=self.initial_mean,
                            initial_covariance=self.initial_covariance,
                            dynamics_matrix=self.dynamics_matrix,
                            dynamics_input_weights=jnp.zeros((self.state_dim, input_dim)),
@@ -547,7 +546,7 @@ class PoissonSSM(_StructuralTimeSeriesSSM):
         comp_cov = jsp.linalg.block_diag(*params['dynamics_covariances'].values())
         spars_matrix = jsp.linalg.block_diag(*self.spars_matrix.values())
         spars_cov = spars_matrix @ comp_cov @ spars_matrix.T
-        return GGSSMParams(initial_mean=self.initial_mean,
+        return ParamsGGSSM(initial_mean=self.initial_mean,
                          initial_covariance=self.initial_covariance,
                          dynamics_function=lambda z: self.dynamics_matrix @ z,
                          dynamics_covariance=spars_cov,

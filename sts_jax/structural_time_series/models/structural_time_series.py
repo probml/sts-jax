@@ -8,7 +8,7 @@ from jax import vmap, jit
 import dynamax
 from dynamax.distributions import InverseWishart as IW
 from dynamax.distributions import MatrixNormalPrecision as MN
-from ssm_jax.structural_time_series.models.structural_time_series_ssm import GaussianSSM, PoissonSSM
+from sts_jax.structural_time_series.models.structural_time_series_ssm import GaussianSSM, PoissonSSM
 from tensorflow_probability.substrates.jax.distributions import MultivariateNormalFullCovariance as MVN
 
 
