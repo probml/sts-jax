@@ -3,7 +3,7 @@ import jax.random as jr
 
 import matplotlib.pyplot as plt
 
-import dynamax.structural_time_series.models.structural_time_series as sts
+import sts_jax.structural_time_series.models.structural_time_series as sts
 
 
 class CausalImpact():
@@ -95,15 +95,14 @@ def causal_impact(observed_timeseries,
 
     # Construct a STS model with only local linear trend by default
     if sts_model is None:
-        local_linear_trend = sts.LocalLinearTrend(observed_timeseries=observed_timeseries)
+        local_linear_trend = sts.LocalLinearTrend(observed_time_series=observed_timeseries)
         if inputs is None:
             sts_model = sts.StructuralTimeSeries(components=[local_linear_trend],
-                                                 observed_timeseries=observed_timeseries,
                                                  observation_distribution_family=distribution_family)
         else:
             linear_regression = sts.LinearRegression(weights_shape=(dim_obs, dim_inputs))
             sts_model = sts.StructuralTimeSeries(components=[local_linear_trend, linear_regression],
-                                                 observed_timeseries=observed_timeseries,
+                                                 observed_time_series=observed_timeseries,
                                                  observation_distribution_family=distribution_family)
 
     # Fit the STS model, sample from the past and forecast.
