@@ -4,14 +4,18 @@ from functools import partial
 import jax.numpy as jnp
 import jax.random as jr
 import jax.scipy as jsp
-from dynamax.abstractions import SSM
-from dynamax.generalized_gaussian_ssm.inference import (
+from dynamax.ssm import SSM
+from dynamax.generalized_gaussian_ssm import (
+    ParamsGGSSM,
+    EKFIntegrals,
     iterated_conditional_moments_gaussian_filter as cmgf_filt,
     iterated_conditional_moments_gaussian_smoother as cmgf_smooth,
     EKFIntegrals)
-from dynamax.generalized_gaussian_ssm.generalized_gaussian_ssm import ParamsGGSSM
-from dynamax.linear_gaussian_ssm.inference import (
-    ParamsLGSSMMoment,
+from dynamax.linear_gaussian_ssm import (
+    ParamsLGSSM,
+    ParamsLGSSMInitial,
+    ParamsLGSSMDynamics,
+    ParamsLGSSMEmissions,
     lgssm_filter,
     lgssm_smoother,
     lgssm_posterior_sample)
@@ -331,40 +335,45 @@ class StructuralTimeSeriesSSM(SSM):
         get_sparse_cov = lambda t:\
             self.cov_select_mat @ self.get_trans_cov(params, t) @ self.cov_select_mat.T
         if self.obs_distribution == 'Gaussian':
-            return ParamsLGSSMMoment(initial_mean=self.initial_mean,
-                                     initial_covariance=self.initial_cov,
-                                     dynamics_weights=get_trans_mat,
-                                     dynamics_input_weights=jnp.zeros((self.dim_state, 1)),
-                                     dynamics_bias=jnp.zeros(self.dim_state),
-                                     dynamics_covariance=get_sparse_cov,
-                                     emission_weights=self.obs_mat,
-                                     emission_input_weights=jnp.eye(self.dim_obs),
-                                     emission_bias=jnp.zeros(self.dim_obs),
-                                     emission_covariance=params['obs_model']['cov']
-                                     )
+            return ParamsLGSSM(
+                initial=ParamsLGSSMInitial(mean=self.initial_mean,
+                                           cov=self.initial_cov),
+                dynamics=ParamsLGSSMDynamics(weights=get_trans_mat,
+                                             bias=jnp.zeros(self.dim_state),
+                                             input_weights=jnp.zeros(self.dim_state, 1),
+                                             cov=get_sparse_cov),
+                emissions=ParamsLGSSMEmissions(weights=self.obs_mat,
+                                               bias=jnp.zeros(self.dim_obs),
+                                               input_weights=jnp.eye(self.dim_obs),
+                                               cov=params['obs_model']['cov'])
+                )
         elif self.obs_distribution == 'Poisson':
             # Current formulation of the dynamics function cannot depends on t
             trans_mat = get_trans_mat(0)
             sparse_cov = get_sparse_cov(0)
-            return ParamsGGSSM(initial_mean=self.initial_mean,
-                               initial_covariance=self.initial_cov,
-                               dynamics_function=lambda z: trans_mat @ z,
-                               dynamics_covariance=sparse_cov,
-                               emission_mean_function=
-                                   lambda z: self._emission_constrainer(self.obs_mat @ z),
-                               emission_cov_function=
-                                   lambda z: jnp.diag(self._emission_constrainer(self.obs_mat @ z)),
-                               emission_dist=lambda mu, Sigma: Pois(log_rate=jnp.log(mu))
-                               )
+            return ParamsGGSSM(
+                initial_mean=self.initial_mean,
+                initial_covariance=self.initial_cov,
+                dynamics_function=lambda z: trans_mat @ z,
+                dynamics_covariance=sparse_cov,
+                emission_mean_function=lambda z: self._emission_constrainer(self.obs_mat @ z),
+                emission_cov_function=lambda z: jnp.diag(self._emission_constrainer(self.obs_mat @ z)),
+                emission_dist=lambda mu, Sigma: Pois(log_rate=jnp.log(mu))
+                )
 
     def _ssm_filter(self, params, emissions, inputs):
         """The filter of the corresponding SSM model.
         """
         if self.obs_distribution == 'Gaussian':
-            return lgssm_filter(params=params, emissions=emissions, inputs=inputs)
+            return lgssm_filter(params=params,
+                                emissions=emissions,
+                                inputs=inputs)
         elif self.obs_distribution == 'Poisson':
-            return cmgf_filt(params=params, inf_params=EKFIntegrals(), emissions=emissions,
-                             inputs=inputs, num_iter=2)
+            return cmgf_filt(model_params=params,
+                             inf_params=EKFIntegrals(),
+                             emissions=emissions,
+                             inputs=inputs,
+                             num_iter=2)
 
     def _ssm_smoother(self, params, emissions, inputs):
         """The smoother of the corresponding SSM model

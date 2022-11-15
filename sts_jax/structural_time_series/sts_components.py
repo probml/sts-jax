@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from dynamax.distributions import (
+from dynamax.utils.distributions import (
     InverseWishart as IW, MatrixNormalPrecision as MNP)
 from dynamax.parameters import ParameterProperties as Prop
-from dynamax.utils import PSDToRealBijector
+from dynamax.utils.bijectors import RealToPSDBijector
 from jax import lax
 import jax.numpy as jnp
 from tensorflow_probability.substrates.jax.distributions import (
@@ -13,7 +13,7 @@ from tensorflow_probability.substrates.jax.distributions import (
 import tensorflow_probability.substrates.jax.bijectors as tfb
 
 
-RealToPSD = tfb.Invert(PSDToRealBijector)
+RealToPSD = RealToPSDBijector()
 
 
 #########################

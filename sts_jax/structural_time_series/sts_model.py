@@ -3,16 +3,16 @@ import jax.numpy as jnp
 import jax.random as jr
 from jax import vmap, jit
 from jax.tree_util import tree_map, tree_flatten
-from dynamax.distributions import InverseWishart as IW
+from dynamax.utils.distributions import InverseWishart as IW
 from dynamax.parameters import ParameterProperties as Prop
-from dynamax.structural_time_series.models.sts_ssm import StructuralTimeSeriesSSM
-from dynamax.structural_time_series.models.sts_components import *
-from dynamax.utils import PSDToRealBijector
+from sts_jax.structural_time_series.sts_ssm import StructuralTimeSeriesSSM
+from sts_jax.structural_time_series.sts_components import *
+from dynamax.utils.bijectors import RealToPSDBijector
 import optax
 import tensorflow_probability.substrates.jax.bijectors as tfb
 
 
-RealToPSD = tfb.Invert(PSDToRealBijector)
+RealToPSD = RealToPSDBijector()
 
 
 class StructuralTimeSeries():
