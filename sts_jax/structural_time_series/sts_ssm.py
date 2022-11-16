@@ -16,9 +16,10 @@ from dynamax.linear_gaussian_ssm import (
     ParamsLGSSMInitial,
     ParamsLGSSMDynamics,
     ParamsLGSSMEmissions,
-    lgssm_filter,
+    # lgssm_filter,
     lgssm_smoother,
     lgssm_posterior_sample)
+from .inference import lgssm_filter
 from tensorflow_probability.substrates.jax.distributions import (
     MultivariateNormalFullCovariance as MVN,
     Poisson as Pois)
@@ -340,7 +341,7 @@ class StructuralTimeSeriesSSM(SSM):
                                            cov=self.initial_cov),
                 dynamics=ParamsLGSSMDynamics(weights=get_trans_mat,
                                              bias=jnp.zeros(self.dim_state),
-                                             input_weights=jnp.zeros(self.dim_state, 1),
+                                             input_weights=jnp.zeros((self.dim_state, 1)),
                                              cov=get_sparse_cov),
                 emissions=ParamsLGSSMEmissions(weights=self.obs_mat,
                                                bias=jnp.zeros(self.dim_obs),
