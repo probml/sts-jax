@@ -17,9 +17,9 @@ from dynamax.linear_gaussian_ssm import (
     ParamsLGSSMDynamics,
     ParamsLGSSMEmissions,
     # lgssm_filter,
-    lgssm_smoother,
+    # lgssm_smoother,
     lgssm_posterior_sample)
-from .inference import lgssm_filter
+from .inference import lgssm_filter, lgssm_smoother
 from tensorflow_probability.substrates.jax.distributions import (
     MultivariateNormalFullCovariance as MVN,
     Poisson as Pois)

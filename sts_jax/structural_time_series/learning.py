@@ -140,9 +140,10 @@ def fit_hmc(model,
         return lp
 
     # Initialize the HMC sampler using window_adaptations
-    warmup = blackjax.window_adaptation(blackjax.nuts, unnorm_log_pos, num_steps=warmup_steps)
+    warmup = blackjax.window_adaptation(blackjax.nuts, unnorm_log_pos, num_steps=warmup_steps,
+                                        progress_bar=verbose)
     init_key, key = jr.split(key)
-    hmc_initial_state, hmc_kernel, _ = warmup.run(init_key, initial_unc_params, progress_bar=verbose)
+    hmc_initial_state, hmc_kernel, _ = warmup.run(init_key, initial_unc_params)
 
     @jit
     def hmc_step(hmc_state, step_key):

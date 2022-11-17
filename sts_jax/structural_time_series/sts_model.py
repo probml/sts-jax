@@ -188,8 +188,8 @@ class StructuralTimeSeries():
             param_props = self.param_props
 
         param_samps, param_log_probs = fit_hmc(
-            sts_ssm, initial_params, param_props, key, num_samples, obs_time_series, covariates,
-            warmup_steps, verbose)
+            sts_ssm, initial_params, param_props, num_samples, obs_time_series, covariates,
+            key, warmup_steps, verbose)
         return param_samps, param_log_probs
 
     def posterior_sample(self, key, obs_time_series, sts_params, inputs=None):
