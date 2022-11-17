@@ -9,7 +9,7 @@ from jax.tree_util import tree_map, tree_flatten, tree_leaves
 import jax.scipy.stats.norm as norm
 import optax
 from dynamax.parameters import to_unconstrained, from_unconstrained, log_det_jac_constrain
-from dynamax.utils import ensure_array_has_batch_dim, pytree_slice, pytree_stack
+from dynamax.utils.utils import ensure_array_has_batch_dim, pytree_slice, pytree_stack
 
 
 def fit_vi(model,
@@ -52,12 +52,12 @@ def fit_vi(model,
     batch_emissions = ensure_array_has_batch_dim(emissions, model.emission_shape)
     batch_inputs = ensure_array_has_batch_dim(inputs, model.inputs_shape)
 
-    initial_unc_params, fixed_params = to_unconstrained(initial_params, param_props)
+    initial_unc_params = to_unconstrained(initial_params, param_props)
 
     @jit
     def unnorm_log_pos(_unc_params):
-        params = from_unconstrained(_unc_params, fixed_params, param_props)
-        log_det_jac = log_det_jac_constrain(_unc_params, fixed_params, param_props)
+        params = from_unconstrained(_unc_params, param_props)
+        log_det_jac = log_det_jac_constrain(params, param_props)
         log_pri = model.log_prior(params) + log_det_jac
         batch_lls = vmap(partial(model.marginal_log_prob, params))(batch_emissions, batch_inputs)
         lp = batch_lls.sum() + log_pri
@@ -110,7 +110,7 @@ def fit_vi(model,
     # samples = vmap(vi_sample)(jr.split(key2, num_samples))
 
     # return samples, losses
-    return from_unconstrained(vi_hyp_fitted, fixed_params, param_props), losses
+    return from_unconstrained(vi_hyp_fitted, param_props), losses
 
 
 def fit_hmc(model,
@@ -128,12 +128,12 @@ def fit_hmc(model,
     batch_emissions = ensure_array_has_batch_dim(emissions, model.emission_shape)
     batch_inputs = ensure_array_has_batch_dim(inputs, model.inputs_shape)
 
-    initial_unc_params, fixed_params = to_unconstrained(initial_params, param_props)
+    initial_unc_params = to_unconstrained(initial_params, param_props)
 
     # The log likelihood that the HMC samples from
     def unnorm_log_pos(_unc_params):
-        params = from_unconstrained(_unc_params, fixed_params, param_props)
-        log_det_jac = log_det_jac_constrain(_unc_params, fixed_params, param_props)
+        params = from_unconstrained(_unc_params, param_props)
+        log_det_jac = log_det_jac_constrain(params, param_props)
         log_pri = model.log_prior(params) + log_det_jac
         batch_lls = vmap(partial(model.marginal_log_prob, params))(batch_emissions, batch_inputs)
         lp = log_pri + batch_lls.sum()
@@ -142,12 +142,12 @@ def fit_hmc(model,
     # Initialize the HMC sampler using window_adaptations
     warmup = blackjax.window_adaptation(blackjax.nuts, unnorm_log_pos, num_steps=warmup_steps)
     init_key, key = jr.split(key)
-    hmc_initial_state, hmc_kernel, _ = warmup.run(init_key, initial_unc_params)
+    hmc_initial_state, hmc_kernel, _ = warmup.run(init_key, initial_unc_params, progress_bar=verbose)
 
     @jit
     def hmc_step(hmc_state, step_key):
         next_hmc_state, _ = hmc_kernel(step_key, hmc_state)
-        params = from_unconstrained(hmc_state.position, fixed_params, param_props)
+        params = from_unconstrained(hmc_state.position, param_props)
         return next_hmc_state, params
 
     # Start sampling.

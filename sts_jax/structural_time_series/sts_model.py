@@ -9,6 +9,7 @@ from sts_jax.structural_time_series.sts_ssm import StructuralTimeSeriesSSM
 from sts_jax.structural_time_series.sts_components import *
 from dynamax.utils.bijectors import RealToPSDBijector
 import optax
+from .learning import fit_hmc
 import tensorflow_probability.substrates.jax.bijectors as tfb
 
 
@@ -186,8 +187,8 @@ class StructuralTimeSeries():
         if param_props is None:
             param_props = self.param_props
 
-        param_samps, param_log_probs = sts_ssm.fit_hmc(
-            initial_params, param_props, key, num_samples, obs_time_series, covariates,
+        param_samps, param_log_probs = fit_hmc(
+            sts_ssm, initial_params, param_props, key, num_samples, obs_time_series, covariates,
             warmup_steps, verbose)
         return param_samps, param_log_probs
 
