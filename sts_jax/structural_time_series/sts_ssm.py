@@ -357,9 +357,9 @@ class StructuralTimeSeriesSSM(SSM):
                 initial_covariance=self.initial_cov,
                 dynamics_function=lambda z: trans_mat @ z,
                 dynamics_covariance=sparse_cov,
-                emission_mean_function=lambda z: self._emission_constrainer(self.obs_mat @ z),
+                emission_mean_function=lambda z, u: self._emission_constrainer(self.obs_mat @ z + u),
                 emission_cov_function=lambda z: jnp.diag(self._emission_constrainer(self.obs_mat @ z)),
-                emission_dist=lambda mu, Sigma: Pois(log_rate=jnp.log(mu))
+                emission_dist=lambda mu, Sigma: Pois(rate=mu)
                 )
 
     def _ssm_filter(self, params, emissions, inputs):

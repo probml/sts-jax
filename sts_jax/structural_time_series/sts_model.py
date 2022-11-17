@@ -303,3 +303,9 @@ class StructuralTimeSeries():
             return sts_params
         else:
             return tree_map(lambda x: jnp.expand_dims(x, 0), sts_params)
+
+    def _preprocess(self, obs):
+        pass
+
+    def _preprocess_inv(self, obs):
+        pass
