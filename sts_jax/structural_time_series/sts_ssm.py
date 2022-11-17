@@ -253,6 +253,12 @@ class StructuralTimeSeriesSSM(SSM):
             past_inputs = jnp.zeros(obs_time_series.shape)
             forecast_inputs = jnp.zeros((num_forecast_steps, self.dim_obs))
 
+        if self.obs_distribution == 'Gaussian':
+            get_obs_cov = lambda obs_mean, cur_cov: self.obs_mat @ cur_cov @ self.obs_mat.T\
+                + params['obs_model']['cov']
+        elif self.obs_distribution == 'Poisson':
+            get_obs_cov = lambda obs_mean, cur_cov: obs_mean
+
         # Convert the STS model to SSM.
         ssm_params = self._to_ssm_params(params)
         get_trans_mat = partial(self.get_trans_mat, params)
@@ -272,7 +278,7 @@ class StructuralTimeSeriesSSM(SSM):
             # Observation of the previous time step.
             obs_mean_unc = self.obs_mat @ cur_mean + forecast_input
             obs_mean = self._emission_constrainer(obs_mean_unc)
-            obs_cov = self.obs_mat @ cur_cov @ self.obs_mat.T + params['obs_model']['cov']
+            obs_cov = get_obs_cov(obs_mean, cur_cov)
             obs = self.emission_distribution(cur_state, forecast_input).sample(seed=key2)
 
             # Predict the latent state of the next time step.
@@ -355,10 +361,10 @@ class StructuralTimeSeriesSSM(SSM):
             return ParamsGGSSM(
                 initial_mean=self.initial_mean,
                 initial_covariance=self.initial_cov,
-                dynamics_function=lambda z: trans_mat @ z,
+                dynamics_function=lambda z, u: trans_mat @ z,
                 dynamics_covariance=sparse_cov,
                 emission_mean_function=lambda z, u: self._emission_constrainer(self.obs_mat @ z + u),
-                emission_cov_function=lambda z: jnp.diag(self._emission_constrainer(self.obs_mat @ z)),
+                emission_cov_function=lambda z, u: jnp.diag(self._emission_constrainer(self.obs_mat @ z)),
                 emission_dist=lambda mu, Sigma: Pois(rate=mu)
                 )
 

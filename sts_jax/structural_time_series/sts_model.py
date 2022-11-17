@@ -58,21 +58,22 @@ class StructuralTimeSeries():
         self.obs_distribution = obs_distribution
         self.dim_covariate = covariates.shape[-1] if covariates is not None else 0
 
-        self.offset = obs_time_series.mean(axis=0) if constant_offset else 0.
-        obs_time_series = obs_time_series - self.offset
+        obs_unconstrained = self.unconstrain_obs(obs_time_series)
+        self.offset = obs_unconstrained.mean(axis=0) if constant_offset else 0.
+        obs_centered_unconstrained = obs_unconstrained - self.offset
 
         # Initialize paramters using the scale of observed time series
         regression = None
-        obs_scale = jnp.std(jnp.abs(jnp.diff(obs_time_series, axis=0)), axis=0)
+        obs_scale = jnp.std(jnp.abs(jnp.diff(obs_centered_unconstrained, axis=0)), axis=0)
         for c in components:
             if isinstance(c, STSRegression):
                 regression = c
-                regression.initialize(covariates, obs_time_series)
+                regression.initialize(covariates, obs_centered_unconstrained)
                 residuals = regression.fit(regression.params, covariates)
                 obs_scale = jnp.std(jnp.abs(jnp.diff(residuals, axis=0)), axis=0)
         for c in components:
             if not isinstance(c, STSRegression):
-                c.initialize_params(obs_time_series[0], obs_scale)
+                c.initialize_params(obs_centered_unconstrained[0], obs_scale)
 
         # Aggeragate components
         self.initial_distributions = OrderedDict()
@@ -139,9 +140,9 @@ class StructuralTimeSeries():
         return self.offset + timeseries
 
     def marginal_log_prob(self, obs_time_series, covariates=None):
-        obs_time_series = obs_time_series - self.offset
+        obs_centered = self.center_obs(obs_time_series)
         sts_ssm = self.as_ssm()
-        return sts_ssm.marginal_log_prob(sts_ssm.params, obs_time_series, covariates)
+        return sts_ssm.marginal_log_prob(sts_ssm.params, obs_centered, covariates)
 
     def fit_mle(self,
                 obs_time_series,
@@ -152,13 +153,13 @@ class StructuralTimeSeries():
                 key=jr.PRNGKey(0)):
         """Maximum likelihood estimate of parameters of the STS model
         """
-        obs_time_series = obs_time_series - self.offset
+        obs_centered = self.center_obs(obs_time_series)
         sts_ssm = self.as_ssm()
         curr_params = sts_ssm.params if initial_params is None else initial_params
         param_props = sts_ssm.param_props
 
         optimal_params, losses = sts_ssm.fit_sgd(
-            curr_params, param_props, obs_time_series, num_epochs=num_steps,
+            curr_params, param_props, obs_centered, num_epochs=num_steps,
             key=key, inputs=covariates, optimizer=optimizer)
 
         return optimal_params, losses
@@ -179,7 +180,6 @@ class StructuralTimeSeries():
             regression coefficient matrix (if the model has inputs and a regression component)
             covariance matrix of observations (if observations follow Gaussian distribution)
         """
-        obs_time_series = obs_time_series - self.offset
         sts_ssm = self.as_ssm()
         # Initialize via fit MLE if initial params is not given.
         if initial_params is None:
@@ -187,15 +187,16 @@ class StructuralTimeSeries():
         if param_props is None:
             param_props = self.param_props
 
+        obs_centered = self.center_obs(obs_time_series)
         param_samps, param_log_probs = fit_hmc(
-            sts_ssm, initial_params, param_props, num_samples, obs_time_series, covariates,
+            sts_ssm, initial_params, param_props, num_samples, obs_centered, covariates,
             key, warmup_steps, verbose)
         return param_samps, param_log_probs
 
     def posterior_sample(self, key, obs_time_series, sts_params, inputs=None):
         """Sample latent states given model parameters."""
         sts_params = self._ensure_param_has_batch_dim(sts_params)
-        obs_time_series = obs_time_series - self.offset
+        obs_centered = self.center_obs(obs_time_series)
 
         @jit
         def single_sample(sts_param):
@@ -203,8 +204,8 @@ class StructuralTimeSeries():
                 sts_param, self.param_props, self.param_priors,
                 self.trans_mat_getters, self.trans_cov_getters, self.obs_mats, self.cov_select_mats,
                 self.initial_distributions, self.reg_func, self.obs_distribution)
-            ts_means, ts = sts_ssm.posterior_sample(key, obs_time_series, inputs)
-            return [self.offset + ts_means, self.offset + ts]
+            ts_means, ts = sts_ssm.posterior_sample(key, obs_centered, inputs)
+            return [self.uncenter_obs(ts_means), self.uncenter_obs(ts)]
 
         samples = vmap(single_sample)(sts_params)
 
@@ -238,22 +239,21 @@ class StructuralTimeSeries():
             component_dists: (OrderedDict) each item is a tuple of means and variances
                               of one component.
         """
-        sts_params = self._ensure_param_has_batch_dim(sts_params)
-        obs_time_series = obs_time_series - self.offset
-
-        component_dists = OrderedDict()
-
         # Sample parameters from the posterior if parameters is not given
         if sts_params is None:
             sts_params = self.fit_hmc(num_pos_samples, obs_time_series, covariates, key=key)
 
+        sts_params = self._ensure_param_has_batch_dim(sts_params)
+        obs_centered = self.center_obs(obs_time_series)
+
         @jit
         def single_decompose(sts_param):
             sts_ssm = self.as_ssm()
-            return sts_ssm.component_posterior(sts_param, obs_time_series, covariates)
+            return sts_ssm.component_posterior(sts_param, obs_centered, covariates)
 
         component_conditional_pos = vmap(single_decompose)(sts_params)
 
+        component_dists = OrderedDict()
         # Obtain the marginal posterior
         for c, pos in component_conditional_pos.items():
             means = pos['pos_mean']
@@ -277,15 +277,15 @@ class StructuralTimeSeries():
         """Forecast.
         """
         sts_params = self._ensure_param_has_batch_dim(sts_params)
-        obs_time_series = obs_time_series - self.offset
+        obs_centered = self.center_obs(obs_time_series)
 
         @jit
         def single_forecast(sts_param):
             sts_ssm = self.as_ssm()
             means, covs, ts = sts_ssm.forecast(
-                sts_param, obs_time_series, num_forecast_steps,
+                sts_param, obs_centered, num_forecast_steps,
                 past_covariates, forecast_covariates, key)
-            return [means + self.offset, covs, ts + self.offset]
+            return [self.uncenter_obs(means), covs, self.uncenter_obs(ts)]
 
         forecasts = vmap(single_forecast)(sts_params)
 
@@ -304,8 +304,22 @@ class StructuralTimeSeries():
         else:
             return tree_map(lambda x: jnp.expand_dims(x, 0), sts_params)
 
-    def _preprocess(self, obs):
-        pass
+    def constrain_obs(self, obs_time_series):
+        if self.obs_distribution == 'Gaussian':
+            return obs_time_series
+        elif self.obs_distribution == 'Poisson':
+            return jnp.exp(obs_time_series)
 
-    def _preprocess_inv(self, obs):
-        pass
+    def unconstrain_obs(self, obs_time_series_constrained):
+        if self.obs_distribution == 'Gaussian':
+            return obs_time_series_constrained
+        elif self.obs_distribution == 'Poisson':
+            return jnp.log(obs_time_series_constrained)
+
+    def center_obs(self, obs_time_series):
+        obs_unconstrained = self.unconstrain_obs(obs_time_series)
+        return self.constrain_obs(obs_unconstrained - self.offset)
+
+    def uncenter_obs(self, obs_time_series_centered):
+        obs_centered_unconstrained = self.unconstrain_obs(obs_time_series_centered)
+        return self.constrain_obs(obs_centered_unconstrained + self.offset)
