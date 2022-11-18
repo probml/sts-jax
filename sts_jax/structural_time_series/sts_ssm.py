@@ -18,8 +18,9 @@ from dynamax.linear_gaussian_ssm import (
     ParamsLGSSMEmissions,
     # lgssm_filter,
     # lgssm_smoother,
-    lgssm_posterior_sample)
-from .inference import lgssm_filter, lgssm_smoother
+    # lgssm_posterior_sample
+    )
+from .inference import lgssm_filter, lgssm_smoother, lgssm_posterior_sample
 from tensorflow_probability.substrates.jax.distributions import (
     MultivariateNormalFullCovariance as MVN,
     Poisson as Pois)
@@ -186,7 +187,7 @@ class StructuralTimeSeriesSSM(SSM):
 
         # Sample latent state.
         key1, key2 = jr.split(key, 2)
-        ll, states = self._ssm_posterior_sample(ssm_params, obs_time_series, inputs, key1)
+        states = self._ssm_posterior_sample(ssm_params, obs_time_series, inputs, key1)
 
         # Sample observations.
         unc_obs_means = states @ self.obs_mat.T + inputs
@@ -396,7 +397,7 @@ class StructuralTimeSeriesSSM(SSM):
         """
         if self.obs_distribution == 'Gaussian':
             return lgssm_posterior_sample(
-                rng=key, params=ssm_params, emissions=obs_time_series, inputs=inputs)
+                key=key, params=ssm_params, emissions=obs_time_series, inputs=inputs)
         elif self.obs_distribution == 'Poisson':
             # Currently the posterior_sample for STS model with Poisson likelihood
             # simply returns the filtered means.

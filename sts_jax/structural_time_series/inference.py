@@ -114,7 +114,6 @@ class PosteriorGSSMSmoothed(NamedTuple):
 
 # Helper functions
 # _get_params = lambda x, dim, t: x[t] if x.ndim == dim + 1 else x
-
 def _get_params(x, dim, t):
     if callable(x):
         return x(t)
@@ -122,8 +121,6 @@ def _get_params(x, dim, t):
         return x[t]
     else:
         return x
-
-
 _zeros_if_none = lambda x, shape: x if x is not None else jnp.zeros(shape)
 
 

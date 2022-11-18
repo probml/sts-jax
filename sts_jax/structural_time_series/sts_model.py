@@ -193,18 +193,18 @@ class StructuralTimeSeries():
             key, warmup_steps, verbose)
         return param_samps, param_log_probs
 
-    def posterior_sample(self, key, obs_time_series, sts_params, inputs=None):
+    def posterior_sample(self, sts_params, obs_time_series, covariates=None, key=jr.PRNGKey(0)):
         """Sample latent states given model parameters."""
         sts_params = self._ensure_param_has_batch_dim(sts_params)
         obs_centered = self.center_obs(obs_time_series)
-
+        sts_ssm = self.as_ssm()
         @jit
         def single_sample(sts_param):
-            sts_ssm = StructuralTimeSeriesSSM(
-                sts_param, self.param_props, self.param_priors,
-                self.trans_mat_getters, self.trans_cov_getters, self.obs_mats, self.cov_select_mats,
-                self.initial_distributions, self.reg_func, self.obs_distribution)
-            ts_means, ts = sts_ssm.posterior_sample(key, obs_centered, inputs)
+            # sts_ssm = StructuralTimeSeriesSSM(
+            #     sts_param, self.param_props, self.param_priors,
+            #     self.trans_mat_getters, self.trans_cov_getters, self.obs_mats, self.cov_select_mats,
+            #     self.initial_distributions, self.reg_func, self.obs_distribution)
+            ts_means, ts = sts_ssm.posterior_sample(sts_param, obs_centered, covariates, key)
             return [self.uncenter_obs(ts_means), self.uncenter_obs(ts)]
 
         samples = vmap(single_sample)(sts_params)

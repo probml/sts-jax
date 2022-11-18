@@ -3,7 +3,7 @@ import jax.random as jr
 
 import matplotlib.pyplot as plt
 
-import dynamax.structural_time_series.models.structural_time_series as sts
+import sts_jax.structural_time_series.sts_model as sts
 
 
 class CausalImpact():
@@ -59,14 +59,14 @@ class CausalImpact():
         print(msg)
 
 
-def causal_impact(observed_timeseries,
-                  intervention_time,
-                  distribution_family,
-                  inputs=None,
+def causal_impact(obs_time_series,
+                  intervention_timepoint,
+                  obs_distribution,
+                  covariates=None,
                   sts_model=None,
                   confidence_level=0.95,
                   key=jr.PRNGKey(0),
-                  sample_size=200):
+                  num_samples=200):
     """Inferring the causal impact of an intervention on a time series,
     given the observed timeseries before and after the intervention.
 
@@ -76,57 +76,59 @@ def causal_impact(observed_timeseries,
     Returns:
         An object of the CausalImpact class
     """
-    assert distribution_family in ['Gaussian', 'Poisson']
+    assert obs_distribution in ['Gaussian', 'Poisson']
     if sts_model is not None:
-        assert distribution_family == sts_model.obs_family
+        assert obs_distribution == sts_model.obs_distribution
 
     key1, key2, key3 = jr.split(key, 3)
-    num_timesteps, dim_obs = observed_timeseries.shape
+    num_timesteps, dim_obs = obs_time_series.shape
 
     # Split the data into pre-intervention period and post-intervention period
-    timeseries_pre = observed_timeseries[:intervention_time]
-    timeseries_pos = observed_timeseries[intervention_time:]
+    time_series_pre = obs_time_series[:intervention_timepoint]
+    time_series_pos = obs_time_series[intervention_timepoint:]
 
-    if inputs is not None:
-        dim_inputs = inputs.shape[-1]
+    if covariates is not None:
+        dim_covariates = covariates.shape[-1]
         # The number of time steps of input must equal to that of observed time_series.
-        inputs_pre = inputs[:intervention_time]
-        inputs_pos = inputs[intervention_time:]
+        covariates_pre = covariates[:intervention_timepoint]
+        covariates_pos = covariates[intervention_timepoint:]
 
     # Construct a STS model with only local linear trend by default
     if sts_model is None:
-        local_linear_trend = sts.LocalLinearTrend(observed_timeseries=observed_timeseries)
-        if inputs is None:
+        local_linear_trend = sts.LocalLinearTrend()
+        if covariates is None:
             sts_model = sts.StructuralTimeSeries(components=[local_linear_trend],
-                                                 observed_timeseries=observed_timeseries,
-                                                 observation_distribution_family=distribution_family)
+                                                 obs_time_series=obs_time_series,
+                                                 obs_distribution=obs_distribution)
         else:
-            linear_regression = sts.LinearRegression(weights_shape=(dim_obs, dim_inputs))
+            linear_regression = sts.LinearRegression(dim_covariates=dim_covariates)
             sts_model = sts.StructuralTimeSeries(components=[local_linear_trend, linear_regression],
-                                                 observed_timeseries=observed_timeseries,
-                                                 observation_distribution_family=distribution_family)
+                                                 obs_time_series=obs_time_series,
+                                                 obs_distribution=obs_distribution,
+                                                 covariates=covariates)
 
     # Fit the STS model, sample from the past and forecast.
-    if inputs is not None:
+    if covariates is not None:
         # Model fitting
         print('Fit the model using HMC...')
-        params_posterior_samples = sts_model.fit_hmc(key1, sample_size, timeseries_pre, inputs_pre)
+        params_posterior_samples, _ = sts_model.fit_hmc(num_samples, time_series_pre,
+                                                        covariates=covariates_pre, key=key1)
         print("Model fitting completed.")
         # Sample from the past and forecast
         samples_pre = sts_model.posterior_sample(
-            key2, timeseries_pre, params_posterior_samples, inputs_pre)
+            params_posterior_samples, time_series_pre, covariates_pre, key=key2)
         samples_pos = sts_model.forecast(
-            key3, timeseries_pre, params_posterior_samples, timeseries_pos.shape[0],
-            inputs_pre, inputs_pos)
+            params_posterior_samples, time_series_pre, time_series_pos.shape[0],
+            covariates_pre, covariates_pos, key3)
     else:
         # Model fitting
         print('Fit the model using HMC...')
-        params_posterior_samples = sts_model.fit_hmc(key1, sample_size, timeseries_pre)
+        params_posterior_samples, _ = sts_model.fit_hmc(num_samples, time_series_pre, key=key1)
         print("Model fitting completed.")
         # Sample from the past and forecast
-        samples_pre = sts_model.posterior_sample(key2, timeseries_pre, params_posterior_samples)
+        samples_pre = sts_model.posterior_sample(params_posterior_samples, time_series_pre, key=key2)
         samples_pos = sts_model.forecast(
-            key3, timeseries_pre, params_posterior_samples, timeseries_pos.shape[0])
+            params_posterior_samples, time_series_pre, time_series_pos.shape[0], key=key3)
 
     # forecast_means = jnp.concatenate((samples_pre['means'], samples_pos['means']), axis=1).squeeze()
     forecast_observations = jnp.concatenate(
@@ -150,11 +152,11 @@ def causal_impact(observed_timeseries,
     cum_predict_interval_lower = cum_confidence_bounds[1]
 
     # Evaluate the causal impact
-    impact_point = observed_timeseries.squeeze() - predict_point
-    impact_interval_lower = observed_timeseries.squeeze() - predict_interval_upper
-    impact_interval_upper = observed_timeseries.squeeze() - predict_interval_lower
+    impact_point = obs_time_series.squeeze() - predict_point
+    impact_interval_lower = obs_time_series.squeeze() - predict_interval_upper
+    impact_interval_upper = obs_time_series.squeeze() - predict_interval_lower
 
-    cum_timeseries = jnp.cumsum(observed_timeseries.squeeze())
+    cum_timeseries = jnp.cumsum(obs_time_series.squeeze())
     cum_impact_point = cum_timeseries - cum_predict_point
     cum_impact_interval_lower = cum_timeseries - cum_predict_interval_upper
     cum_impact_interval_upper = cum_timeseries - cum_predict_interval_lower
@@ -165,4 +167,4 @@ def causal_impact(observed_timeseries,
     predict = {'pointwise': predict_point,
                'interval': confidence_bounds}
 
-    return CausalImpact(sts_model, intervention_time, predict, impact, observed_timeseries)
+    return CausalImpact(sts_model, intervention_timepoint, predict, impact, obs_time_series)
