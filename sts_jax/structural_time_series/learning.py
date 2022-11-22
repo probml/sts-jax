@@ -21,7 +21,8 @@ def fit_vi(model,
            optimizer=optax.adam(1e-1),
            K=1,
            key=jr.PRNGKey(0),
-           num_mstep_iters=50):
+           num_step_iters=50,
+           verbose=True):
     """
     ADVI approximate the posterior distribtuion p of unconstrained global parameters
     with factorized multivatriate normal distribution:
@@ -35,10 +36,6 @@ def fit_vi(model,
     so a sample from q is obstained by
     s = z * exp(log_sigma_k) + mu_k,
     where z is a sample from the standard multivarate normal distribtion.
-
-    This implementation of ADVI uses fixed samples from q during fitting, instead of
-    updating samples from q in each iteration, as in SGD.
-    So the second order fixed optimization algorithm L-BFGS is used.
 
     Args:
         sample_size (int): number of samples to be returned from the fitted approxiamtion q.
@@ -71,7 +68,6 @@ def fit_vi(model,
         # Turn VI parameters and fixed noises into samples of unconstrained parameters of q.
         unc_params = tree_map(lambda mu, ls: mu + jnp.exp(ls) * jr.normal(next(keys), ls.shape).sum(),
                               vi_hyper['mu'], vi_hyper['log_sig'])
-        unc_params = vi_hyper['mu']
         log_probs = unnorm_log_pos(unc_params)
         log_q = jnp.array(tree_leaves(tree_map(lambda x, *p: norm.logpdf(x, p[0], jnp.exp(p[1])).sum(),
                                                unc_params, vi_hyper['mu'], vi_hyper['log_sig']))).sum()
@@ -79,7 +75,7 @@ def fit_vi(model,
 
     loss_fn = lambda vi_hyp, key: -jnp.mean(vmap(partial(elbo, vi_hyp))(jr.split(key, K)))
 
-    # Fit ADVI with LBFGS algorithm
+    # Fit
     curr_vi_mus = initial_unc_params
     curr_vi_log_sigs = tree_map(lambda x: jnp.zeros(x.shape), initial_unc_params)
     curr_vi_hyper = OrderedDict()
@@ -99,18 +95,16 @@ def fit_vi(model,
     # Run the optimizer
     initial_carry = (curr_vi_hyper, opt_state)
     (vi_hyp_fitted, opt_state), losses = lax.scan(
-        train_step, initial_carry, jr.split(key1, num_mstep_iters))
+        train_step, initial_carry, jr.split(key1, num_step_iters))
 
-    # # Sample from the learned approximate posterior q
-    # vi_sample = lambda key: from_unconstrained(
-    #     tree_map(lambda mu, s: mu + jnp.exp(s)*jr.normal(key, s.shape),
-    #              vi_hyp_fitted['mu'], vi_hyp_fitted['log_sig']),
-    #     fixed_params,
-    #     param_props)
-    # samples = vmap(vi_sample)(jr.split(key2, num_samples))
+    # Sample from the learned approximate posterior q
+    vi_sample = lambda key: from_unconstrained(
+        tree_map(lambda mu, s: mu + jnp.exp(s)*jr.normal(key, s.shape),
+                 vi_hyp_fitted['mu'], vi_hyp_fitted['log_sig']),
+        param_props)
+    samples = vmap(vi_sample)(jr.split(key2, num_samples))
 
-    # return samples, losses
-    return from_unconstrained(vi_hyp_fitted, param_props), losses
+    return samples, losses
 
 
 def fit_hmc(model,

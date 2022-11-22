@@ -9,7 +9,7 @@ from sts_jax.structural_time_series.sts_ssm import StructuralTimeSeriesSSM
 from sts_jax.structural_time_series.sts_components import *
 from dynamax.utils.bijectors import RealToPSDBijector
 import optax
-from .learning import fit_hmc
+from .learning import fit_hmc, fit_vi
 import tensorflow_probability.substrates.jax.bijectors as tfb
 
 
@@ -65,6 +65,7 @@ class StructuralTimeSeries():
         # Initialize paramters using the scale of observed time series
         regression = None
         obs_scale = jnp.std(jnp.abs(jnp.diff(obs_centered_unconstrained, axis=0)), axis=0)
+        # obs_scale = jnp.std(obs_centered_unconstrained, axis=0)
         for c in components:
             if isinstance(c, STSRegression):
                 regression = c
@@ -149,6 +150,7 @@ class StructuralTimeSeries():
                 covariates=None,
                 num_steps=1000,
                 initial_params=None,
+                param_props=None,
                 optimizer=optax.adam(1e-1),
                 key=jr.PRNGKey(0)):
         """Maximum likelihood estimate of parameters of the STS model
@@ -156,13 +158,44 @@ class StructuralTimeSeries():
         obs_centered = self.center_obs(obs_time_series)
         sts_ssm = self.as_ssm()
         curr_params = sts_ssm.params if initial_params is None else initial_params
-        param_props = sts_ssm.param_props
+        if param_props is None:
+            param_props = sts_ssm.param_props
 
         optimal_params, losses = sts_ssm.fit_sgd(
             curr_params, param_props, obs_centered, num_epochs=num_steps,
             key=key, inputs=covariates, optimizer=optimizer)
 
         return optimal_params, losses
+
+    def fit_vi(self,
+               num_samples,
+               obs_time_series,
+               covariates=None,
+               initial_params=None,
+               param_props=None,
+               num_step_iters=50,
+               verbose=True,
+               key=jr.PRNGKey(0)):
+        """Sample parameters of the STS model from ADVI posterior.
+
+        Parameters of the STS model includes:
+            covariance matrix of each component,
+            regression coefficient matrix (if the model has inputs and a regression component)
+            covariance matrix of observations (if observations follow Gaussian distribution)
+        """
+        sts_ssm = self.as_ssm()
+        # Initialize via fit MLE if initial params is not given.
+        if initial_params is None:
+            initial_params = sts_ssm.params
+        if param_props is None:
+            param_props = self.param_props
+
+        obs_centered = self.center_obs(obs_time_series)
+        param_samps, losses = fit_vi(
+            sts_ssm, initial_params, param_props, num_samples, obs_centered, covariates,
+            key, verbose, num_step_iters, verbose)
+        elbo = -losses
+        return param_samps, elbo
 
     def fit_hmc(self,
                 num_samples,
