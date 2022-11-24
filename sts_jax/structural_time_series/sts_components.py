@@ -7,11 +7,17 @@ from dynamax.utils.bijectors import RealToPSDBijector
 from jax import lax
 import jax.numpy as jnp
 from jaxtyping import Float, Array
+from tensorflow_probability.substrates.jax import distributions as tfd
 from tensorflow_probability.substrates.jax.distributions import (
     MultivariateNormalFullCovariance as MVN,
     MultivariateNormalDiag as MVNDiag,
     Uniform)
 import tensorflow_probability.substrates.jax.bijectors as tfb
+
+
+class ParamsSTSComponent(OrderedDict):
+    """A :class: 'OrderdedDict' with each item being an instance of :class: 'jax.DeviceArray'."""
+    pass
 
 
 #########################
@@ -77,14 +83,14 @@ class STSComponent(ABC):
             obs_scale: vector of standard deviations of each dimension of the observed time series.
 
         Returns:
-            No returns. Change self.params and self.initial_distributions directly.
+            No returns. Update self.params and self.initial_distributions directly.
         """
         raise NotImplementedError
 
     @abstractmethod
     def get_trans_mat(
         self,
-        params: OrderedDict,
+        params: ParamsSTSComponent,
         t: int
     ) -> Float[Array, "dim_state dim_state"]:
         r"""Compute the transition matrix, $F[t]$, of the latent component at time step $t$.
@@ -102,7 +108,7 @@ class STSComponent(ABC):
     @abstractmethod
     def get_trans_cov(
         self,
-        params: OrderedDict,
+        params: ParamsSTSComponent,
         t: int
     ) -> Float[Array, "rank_state rank_state"]:
         r"""Compute the nonsingular covariance matrix, $Q[t]$, of the latent component at
@@ -188,22 +194,25 @@ class STSRegression(ABC):
             obs_time_series: observed time series.
 
         Returns:
-            No returns. Change self.params directly.
+            No returns. Update self.params directly.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def fit(self, params, covariates):
-        """Compute the fitted value of the regression model at one time step
-            given parameters and covariates.
+    def get_reg_value(
+        self,
+        params: ParamsSTSComponent,
+        covariates: Float[Array, "num_timesteps dim_covariates"]
+    ) -> Float[Array, "num_timesteps dim_obs"]:
+        r"""Returns the sequence of values of the regression model evaluted at the
+            given parameters and the sequence of covariates.
 
         Args:
-            params (OrderedDict): parameters based on which the regression model
-                is to be evalueated. Has the same tree structure with self.params.
-            covariates (dim_cov, ): covariates at which the regression model is to be evaluated
+            params: parameters on which the regression model is to be evalueated.
+            covariates: sequence of covariates at which the regression model is to be evaluated.
 
         Raises:
-            fitted (dim_obs,): the fitted value of the regression model.
+            values: the sequence of values of the regression model.
         """
         raise NotImplementedError
 
@@ -234,22 +243,25 @@ class LocalLinearTrend(STSComponent):
 
     def __init__(
         self,
-        level_cov_prior=None,
-        slope_cov_prior=None,
-        initial_level_prior=None,
-        initial_slope_prior=None,
         dim_obs: int=1,
-        name: str='local_linear_trend'
+        name: str='local_linear_trend',
+        level_cov_prior: tfd.Distribution=None,
+        slope_cov_prior: tfd.Distribution=None,
+        initial_level_prior: tfd.MultivariateNormalFullCovariance=None,
+        initial_slope_prior: tfd.MultivariateNormalFullCovariance=None,
+        cov_constrainer: tfb.Bijector=None
     ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
 
         self.initial_distribution = MVN(jnp.zeros(2*dim_obs), jnp.eye(2*dim_obs))
 
-        self.param_props['cov_level'] = ParameterProperties(trainable=True, constrainer=RealToPSDBijector())
+        self.param_props['cov_level'] = ParameterProperties(trainable=True,
+                                                            constrainer=RealToPSDBijector())
         self.param_priors['cov_level'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['cov_level'] = self.param_priors['cov_level'].mode()
 
-        self.param_props['cov_slope'] = ParameterProperties(trainable=True, constrainer=RealToPSDBijector())
+        self.param_props['cov_slope'] = ParameterProperties(trainable=True,
+                                                            constrainer=RealToPSDBijector())
         self.param_priors['cov_slope'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['cov_slope'] = self.param_priors['cov_slope'].mode()
 
@@ -264,8 +276,8 @@ class LocalLinearTrend(STSComponent):
 
     def initialize_params(
         self,
-        obs_initial,
-        obs_scale
+        obs_initial: Float[Array, "dim_obs"],
+        obs_scale: Float[Array, "dim_obs"]
     ) -> None:
         # Initialize the distribution of the initial state.
         dim_obs = len(obs_initial)
@@ -279,20 +291,28 @@ class LocalLinearTrend(STSComponent):
         self.param_priors['cov_slope'] = IW(df=dim_obs, scale=1e-3*obs_scale**2*jnp.eye(dim_obs))
         self.params['cov_slope'] = self.param_priors['cov_slope'].mode()
 
-    def get_trans_mat(self, params, t):
+    def get_trans_mat(
+        self,
+        params: ParamsSTSComponent,
+        t: int
+    ) -> Float[Array, "2*dim_obs 2*dim_obs"]:
         return self._trans_mat
 
-    def get_trans_cov(self, params, t):
+    def get_trans_cov(
+        self,
+        params: ParamsSTSComponent,
+        t: int
+    ) -> Float[Array, "2*dim_obs 2*dim_obs"]:
         _shape = params['cov_level'].shape
         return jnp.block([[params['cov_level'], jnp.zeros(_shape)],
                           [jnp.zeros(_shape), params['cov_slope']]])
 
     @property
-    def obs_mat(self):
+    def obs_mat(self) -> Float[Array, "dim_obs 2*dim_obs"]:
         return self._obs_mat
 
     @property
-    def cov_select_mat(self):
+    def cov_select_mat(self) -> Float[Array, "2*dim_obs 2*dim_obs"]:
         return self._cov_select_mat
 
 
@@ -305,12 +325,13 @@ class Autoregressive(STSComponent):
     def __init__(
         self,
         order: int,
-        coefficients_prior=None,
-        level_cov_prior=None,
-        initial_state_prior=None,
-        coefficient_constraining_bijector=None,
         dim_obs: int=1,
-        name: str='ar'
+        name: str='ar',
+        coefficients_prior: tfd.Distribution=None,
+        level_cov_prior: tfd.Distribution=None,
+        initial_state_prior: tfd.MultivariateNormalFullCovariance=None,
+        coefficient_constrainer: tfb.Bijector=None,
+        cov_constrainer: tfb.Bijector=None
     ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
 
@@ -333,8 +354,8 @@ class Autoregressive(STSComponent):
 
     def initialize_params(
         self,
-        obs_initial,
-        obs_scale
+        obs_initial: Float[Array, "dim_obs"],
+        obs_scale: Float[Array, "dim_obs"]
     ) -> None:
         # Initialize the distribution of the initial state.
         dim_obs = len(obs_initial)
@@ -348,9 +369,9 @@ class Autoregressive(STSComponent):
 
     def get_trans_mat(
         self,
-        params,
-        t
-    ):
+        params: ParamsSTSComponent,
+        t: int
+    ) -> Float[Array, ""]:
         if self.order == 1:
             trans_mat = params['coef'][:, None]
         else:
@@ -360,22 +381,22 @@ class Autoregressive(STSComponent):
 
     def get_trans_cov(
         self,
-        params,
-        t
-    ):
+        params: ParamsSTSComponent,
+        t: int
+    ) -> Float[Array, ""]:
         return params['cov_level']
 
     @property
-    def obs_mat(self):
+    def obs_mat(self) -> Float[Array, ""]:
         return self._obs_mat
 
     @property
-    def cov_select_mat(self):
+    def cov_select_mat(self) -> Float[Array, ""]:
         return self._cov_select_mat
 
 
 class SeasonalDummy(STSComponent):
-    """The (dummy) seasonal component of the structual time series (STS) model
+    r"""The (dummy) seasonal component of the structual time series (STS) model
 
     Since at any step t the seasonal effect has following constraint
 
@@ -407,13 +428,13 @@ class SeasonalDummy(STSComponent):
 
     def __init__(
         self,
-        num_seasons,
-        num_steps_per_season=1,
-        allow_drift=True,
-        drift_cov_prior=None,
-        initial_effect_prior=None,
-        dim_obs=1,
-        name='seasonal_dummy'
+        num_seasons: int,
+        num_steps_per_season: int=1,
+        dim_obs: int=1,
+        name: str='seasonal_dummy',
+        drift_cov_prior: tfd.Distribution=None,
+        initial_effect_prior: tfd.MultivariateNormalFullCovariance=None,
+        cov_constrainer: tfb.Bijector=None
     ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
 
@@ -439,8 +460,8 @@ class SeasonalDummy(STSComponent):
 
     def initialize_params(
         self,
-        obs_initial,
-        obs_scale
+        obs_initial: Float[Array, "dim_obs"],
+        obs_scale: Float[Array, "dim_obs"]
     ) -> None:
         # Initialize the distribution of the initial state.
         dim_obs = len(obs_initial)
@@ -454,28 +475,28 @@ class SeasonalDummy(STSComponent):
 
     def get_trans_mat(
         self,
-        params,
-        t
-    ):
+        params: ParamsSTSComponent,
+        t: int
+    ) -> Float[Array, ]:
         return lax.cond(t % self.steps_per_season == 0,
                         lambda: self._trans_mat,
                         lambda: jnp.eye((self.num_seasons-1)*self.dim_obs))
 
     def get_trans_cov(
         self,
-        params,
-        t
-    ):
+        params: ParamsSTSComponent,
+        t: int
+    ) -> Float[Array, ""]:
         return lax.cond(t % self.steps_per_season == 0,
                         lambda: jnp.atleast_2d(params['drift_cov']),
                         lambda: jnp.eye(self.dim_obs)*1e-32)
 
     @property
-    def obs_mat(self):
+    def obs_mat(self) -> Float[Array, ""]:
         return self._obs_mat
 
     @property
-    def cov_select_mat(self):
+    def cov_select_mat(self) -> Float[Array, ""]:
         return self._cov_select_mat
 
 
@@ -516,13 +537,13 @@ class SeasonalTrig(STSComponent):
 
     def __init__(
         self,
-        num_seasons,
-        num_steps_per_season=1,
-        allow_drift=True,
-        drift_cov_prior=None,
-        initial_state_prior=None,
-        dim_obs=1,
-        name='seasonal_trig'
+        num_seasons: int,
+        num_steps_per_season: int=1,
+        dim_obs: int=1,
+        name: str='seasonal_trig',
+        drift_cov_prior: tfd.Distribution=None,
+        initial_state_prior: tfd.MultivariateNormalFullCovariance=None,
+        cov_constrainer: tfb.Bijector=None
     ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
 
@@ -559,8 +580,8 @@ class SeasonalTrig(STSComponent):
 
     def initialize_params(
         self,
-        obs_initial,
-        obs_scale
+        obs_initial: Float[Array, ""],
+        obs_scale: Float[Array, ""]
     ) -> None:
         # Initialize the distribution of the initial state.
         dim_obs = len(obs_initial)
@@ -574,33 +595,33 @@ class SeasonalTrig(STSComponent):
 
     def get_trans_mat(
         self,
-        params,
-        t
-    ):
+        params: ParamsSTSComponent,
+        t: int
+    ) -> Float[Array, ""]:
         return lax.cond(t % self.steps_per_season == 0,
                         lambda: self._trans_mat,
                         lambda: jnp.eye((self.num_seasons-1)*self.dim_obs))
 
     def get_trans_cov(
         self,
-        params,
-        t
-    ):
+        params: ParamsSTSComponent,
+        t: int
+    ) -> Float[Array, ""]:
         return lax.cond(t % self.steps_per_season == 0,
                         lambda: jnp.kron(jnp.eye(self.num_seasons-1), params['drift_cov']),
                         lambda: jnp.eye((self.num_seasons-1)*self.dim_obs)*1e-32)
 
     @property
-    def obs_mat(self):
+    def obs_mat(self) -> Float[Array, ""]:
         return self._obs_mat
 
     @property
-    def cov_select_mat(self):
+    def cov_select_mat(self) -> Float[Array, ""]:
         return self._cov_select_mat
 
 
 class Cycle(STSComponent):
-    """The cycle component of the structural time series model.
+    r"""The cycle component of the structural time series model.
 
     The cycle effect (random) of next time step takes the form:
 
@@ -628,12 +649,13 @@ class Cycle(STSComponent):
 
     def __init__(
         self,
-        damping_factor_prior=None,
-        frequency_prior=None,
-        drift_cov_prior=None,
-        initial_effect_prior=None,
-        dim_obs=1,
-        name='cycle'
+        dim_obs: int=1,
+        name: str='cycle',
+        damping_factor_prior: tfd.Distribution=None,
+        frequency_prior: tfd.Distribution=None,
+        drift_cov_prior: tfd.Distribution=None,
+        initial_effect_prior: tfd.MultivariateNormalFullCovariance=None,
+        cov_constrainer: tfb.Bijector=None
     ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
 
@@ -661,8 +683,8 @@ class Cycle(STSComponent):
 
     def initialize_params(
         self,
-        obs_initial,
-        obs_scale
+        obs_initial: Float[Array, "dim_obs"],
+        obs_scale: Float[Array, "dim_obs"]
     ) -> None:
         # Initialize the distribution of the initial state.
         dim_obs = len(obs_initial)
@@ -676,9 +698,9 @@ class Cycle(STSComponent):
 
     def get_trans_mat(
         self,
-        params,
-        t
-    ):
+        params: ParamsSTSComponent,
+        t: int
+    ) -> Float[Array, ""]:
         freq = params['frequency']
         damp = params['damp']
         _trans_mat = jnp.array([[jnp.cos(freq), jnp.sin(freq)],
@@ -688,17 +710,17 @@ class Cycle(STSComponent):
 
     def get_trans_cov(
         self,
-        params,
-        t
-    ):
+        params: ParamsSTSComponent,
+        t: int
+    ) -> Float[Array, ""]:
         return params['drift_cov']
 
     @property
-    def obs_mat(self):
+    def obs_mat(self) -> Float[Array, ""]:
         return self._obs_mat
 
     @property
-    def cov_select_mat(self):
+    def cov_select_mat(self) -> Float[Array, ""]:
         return self._cov_select_mat
 
 
@@ -716,11 +738,11 @@ class LinearRegression(STSRegression):
     """
     def __init__(
         self,
-        dim_covariates,
-        add_bias=True,
-        weights_prior=None,
-        dim_obs=1,
-        name='linear_regression'
+        dim_covariates: int,
+        add_bias: bool=True,
+        dim_obs: int=1,
+        name: str='linear_regression',
+        weights_prior: tfd.Distribution=None
     ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
         self.add_bias = add_bias
@@ -735,19 +757,19 @@ class LinearRegression(STSRegression):
 
     def initialize_params(
         self,
-        covariates,
-        obs_time_series
+        covariates: Float[Array, ""],
+        obs_time_series: Float[Array, ""]
     ) -> None:
         if self.add_bias:
             inputs = jnp.concatenate((covariates, jnp.ones((covariates.shape[0], 1))), axis=1)
         W = jnp.linalg.solve(inputs.T @ inputs, inputs.T @ obs_time_series)
         self.params['weights'] = W
 
-    def fit(
+    def get_reg_value(
         self,
-        params,
-        covariates
-    ):
+        params: ParamsSTSComponent,
+        covariates: Float[Array, "num_timesteps dim_covariates"]
+    ) -> Float[Array, "num_timesteps dim_obs"]:
         if self.add_bias:
             inputs = jnp.concatenate((covariates, jnp.ones((covariates.shape[0], 1))), axis=1)
             return inputs @ params['weights']

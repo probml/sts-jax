@@ -71,7 +71,7 @@ class StructuralTimeSeries():
             if isinstance(c, STSRegression):
                 regression = c
                 regression.initialize_params(covariates, obs_centered_unconstrained)
-                residuals = regression.fit(regression.params, covariates)
+                residuals = regression.get_reg_value(regression.params, covariates)
                 obs_scale = jnp.std(jnp.abs(jnp.diff(residuals, axis=0)), axis=0)
         for c in components:
             if not isinstance(c, STSRegression):
@@ -114,7 +114,7 @@ class StructuralTimeSeries():
             self.param_props[regression.name] = regression.param_props
             self.param_priors[regression.name] = regression.param_priors
             self.params[regression.name] = regression.params
-            self.reg_func = regression.fit
+            self.reg_func = regression.get_reg_value
         else:
             self.reg_func = None
 
