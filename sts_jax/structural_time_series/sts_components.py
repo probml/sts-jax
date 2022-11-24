@@ -38,7 +38,7 @@ class STSComponent(ABC):
     * :attr: 'cov_select_mat' returns the selecting matrix $R$ that expands the nonsingular
         covariance matrix $Q[t]$ in each time step into a (possibly singular) convarince 
         matrix of shape (dim_state, dim_state).
-    * :attr: 'name' returns the name of the latent component.
+    * :attr: 'name' returns the unique name of the latent component.
     * :attr: 'dim_obs' returns the dimension of the observation in each step of the observed
         time series.
     * :attr: 'initial_distribution' returns the initial_distribution of the initial latent
@@ -46,11 +46,11 @@ class STSComponent(ABC):
         MultivariateNormalFullCovariance
         from tensorflow_probability.substrates.jax.distributions.
     * :attr: 'params' returns parameters of the component, which is an instance of OrderedDict,
-        forming the pytree structure of Jax.
+        forming a pytree structure of Jax.
     * :attr: 'param_props' returns parameter properties of each item in 'params'.
-        param_props has the same pytree structure with params, and each leaf is an instance of
-        dynamax.parameters.ParameterProperties, which specifies constrainer of each parameter
-        and whether that parameter is trainable.
+        param_props has the same pytree structure with 'params', and each leaf is an instance
+        of dynamax.parameters.ParameterProperties, which specifies constrainer of
+        each parameter and whether that parameter is trainable.
     """
 
     def __init__(
@@ -139,43 +139,57 @@ class STSComponent(ABC):
 
 
 class STSRegression(ABC):
-    r"""Meta class of regression component of structural time series (STS) models.
+    r"""A base class for regression component of structural time series (STS) models.
 
-    The regression component has the same dimension as the observed time series.
-    This component will appear in the observation (emission) model in the state space model
-    form of the STS, since it does not have the random term, in contrast to latent components.
+    The regression component is not treated as a latent component of the STS model.
+    Instead, the value of the regression model in each time step is added to the observation
+    model without adding random noise. So the regression model is not necessarily a linear
+    regression model, any model is valid, as long as the output of the model has same dimension
+    with the observed time series.
 
-    A regression component of the STS model has following attributes:
+    **Abstract Methods**
 
-    name (string): name of the regression component.
-    dim_obs (int): dimension of the observation in each step of the observed time series.
-        This is also the output of the regression model.
-    params (OrderedDict): parameters of the function need to be learned in model fitting.
-    param_props (OrderedDict): properties of each item in 'params'.
-        Each item is an instance of ParameterProperties, which specifies constrainer
-        of the parameter and whether the parameter is trainable.
-    param_priors (OrderedDict): prior distributions for each item in 'params'.
+    Models that inherit from `STSRegression` must implement a few key functions and properties:
+
+    * :meth: 'initialize_params' initializes parameters of the regression model,
+        given covariates and the observed time series.
+    * :attr: 'name' returns the unique name of the regression component.
+    * :attr: 'dim_obs' returns the dimension of the observation in each step of the observed
+        time series. This equals the dimension of the output of the regression model.
+    * :attr: 'params' returns parameters of the regression function, which is an instance of
+        OrderedDict, forming a pytree structure of Jax.
+    * :attr: 'param_props' returns parameter properties of each item in 'params'.
+        param_props has the same pytree structure with 'params', and each leaf is an instance
+        of dynamax.parameters.ParameterProperties, which specifies constrainer of
+        each parameter and whether that parameter is trainable.
     """
 
-    def __init__(self, name, dim_obs=1):
+    def __init__(
+        self,
+        name: str,
+        dim_obs: int=1
+    ) -> None:
         self.name = name
         self.dim_obs = dim_obs
 
-        self.param_props = OrderedDict()
-        self.param_priors = OrderedDict()
         self.params = OrderedDict()
+        self.param_props = OrderedDict()
 
     @abstractmethod
-    def initialize(self, covariates, obs_time_series):
-        """Initialize parameters of the regression function by minimising the least square error,
+    def initialize_params(
+        self,
+        covariates: Float[Array, "num_timesteps dim_covariates"],
+        obs_time_series: Float[Array, "num_timesteps dim_obs"]
+    ) -> None:
+        r"""Initialize parameters of the regression model by minimizing certain loss function,
         given the series of covariates and the observed time series.
 
         Args:
-            covariates (len(obs_time_series), dim_covariates): series of inputs
-                of the regression function.
+            covariates: series of covariates of the regression function.
             obs_time_series: observed time series.
+
         Returns:
-            No returns. Change self.params and self.initial_distributions directly.
+            No returns. Change self.params directly.
         """
         raise NotImplementedError
 
@@ -203,24 +217,31 @@ class STSRegression(ABC):
 class LocalLinearTrend(STSComponent):
     r"""The local linear trend component of the structual time series (STS) model
 
-    The latent state is [level, slope], having dimension 2 * dim_obs. The dynamics is
+    The latent state has two parts $[level, slope]$, having dimension 2 * dim_obs.
+    The dynamics is:
+    $$level[t+1] = level[t] + slope[t] + \matcal{N}(0, cov_level)$$
+    $$slope[t+1] = slope[t] + \mathcal{N}(0, cov_slope)$$
 
-        level[t+1] = level[t] + slope[t] + N(0, cov_level)
-        slope[t+1] = slope[t] + N(0, cov_slope)
-
-    In the case dim_obs = 1:
-
-        trans_mat = | 1, 1 |    obs_mat = [ 1, 0 ]
-                    | 0, 1 |,
+    In the case $dim_obs = 1$, the transition matrix $F$ and the observation matrix $H$ are
+    $$
+    F = \begin{bmatrix}
+         1 & 1 \\
+         0 & 1
+        \end{bmatrix},
+    \qquad
+    H = [ 1, 0 ].
+    $$
     """
 
-    def __init__(self,
-                 level_cov_prior=None,
-                 slope_cov_prior=None,
-                 initial_level_prior=None,
-                 initial_slope_prior=None,
-                 dim_obs=1,
-                 name='local_linear_trend'):
+    def __init__(
+        self,
+        level_cov_prior=None,
+        slope_cov_prior=None,
+        initial_level_prior=None,
+        initial_slope_prior=None,
+        dim_obs: int=1,
+        name: str='local_linear_trend'
+    ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
 
         self.initial_distribution = MVN(jnp.zeros(2*dim_obs), jnp.eye(2*dim_obs))
@@ -242,7 +263,11 @@ class LocalLinearTrend(STSComponent):
         # Covariance selection matrix.
         self._cov_select_mat = jnp.eye(2*dim_obs)
 
-    def initialize_params(self, obs_initial, obs_scale):
+    def initialize_params(
+        self,
+        obs_initial,
+        obs_scale
+    ) -> None:
         # Initialize the distribution of the initial state.
         dim_obs = len(obs_initial)
         initial_mean = jnp.concatenate((obs_initial, jnp.zeros(dim_obs)))
@@ -278,14 +303,16 @@ class Autoregressive(STSComponent):
     Args (in addition to name and dim_obs):
         p (int): the autoregressive order
     """
-    def __init__(self,
-                 order,
-                 coefficients_prior=None,
-                 level_cov_prior=None,
-                 initial_state_prior=None,
-                 coefficient_constraining_bijector=None,
-                 dim_obs=1,
-                 name='ar'):
+    def __init__(
+        self,
+        order: int,
+        coefficients_prior=None,
+        level_cov_prior=None,
+        initial_state_prior=None,
+        coefficient_constraining_bijector=None,
+        dim_obs: int=1,
+        name: str='ar'
+    ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
 
         self.order = order
@@ -305,7 +332,11 @@ class Autoregressive(STSComponent):
         # Covariance selection matrix.
         self._cov_select_mat = jnp.kron(jnp.eye(order)[:, 0], jnp.eye(dim_obs))
 
-    def initialize_params(self, obs_initial, obs_scale):
+    def initialize_params(
+        self,
+        obs_initial,
+        obs_scale
+    ) -> None:
         # Initialize the distribution of the initial state.
         dim_obs = len(obs_initial)
         initial_mean = jnp.kron(jnp.eye(self.order)[0], obs_initial)
@@ -316,7 +347,11 @@ class Autoregressive(STSComponent):
         self.param_priors['cov_level'] = IW(df=dim_obs, scale=1e-3*obs_scale**2*jnp.eye(dim_obs))
         self.params['cov_level'] = self.param_priors['cov_level'].mode()
 
-    def get_trans_mat(self, params, t):
+    def get_trans_mat(
+        self,
+        params,
+        t
+    ):
         if self.order == 1:
             trans_mat = params['coef'][:, None]
         else:
@@ -324,7 +359,11 @@ class Autoregressive(STSComponent):
                                          jnp.eye(self.order)[:, :-1]), axis=1)
         return jnp.kron(trans_mat, jnp.eye(self.dim_obs))
 
-    def get_trans_cov(self, params, t):
+    def get_trans_cov(
+        self,
+        params,
+        t
+    ):
         return params['cov_level']
 
     @property
@@ -367,14 +406,16 @@ class SeasonalDummy(STSComponent):
             then num_steps_per_season = 24.
     """
 
-    def __init__(self,
-                 num_seasons,
-                 num_steps_per_season=1,
-                 allow_drift=True,
-                 drift_cov_prior=None,
-                 initial_effect_prior=None,
-                 dim_obs=1,
-                 name='seasonal_dummy'):
+    def __init__(
+        self,
+        num_seasons,
+        num_steps_per_season=1,
+        allow_drift=True,
+        drift_cov_prior=None,
+        initial_effect_prior=None,
+        dim_obs=1,
+        name='seasonal_dummy'
+    ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
 
         self.num_seasons = num_seasons
@@ -397,7 +438,11 @@ class SeasonalDummy(STSComponent):
         # Covariance selection matrix.
         self._cov_select_mat = jnp.kron(jnp.eye(_c)[:, [0]], jnp.eye(dim_obs))
 
-    def initialize_params(self, obs_initial, obs_scale):
+    def initialize_params(
+        self,
+        obs_initial,
+        obs_scale
+    ) -> None:
         # Initialize the distribution of the initial state.
         dim_obs = len(obs_initial)
         initial_mean = jnp.zeros((self.num_seasons-1) * dim_obs)
@@ -408,12 +453,20 @@ class SeasonalDummy(STSComponent):
         self.param_priors['drift_cov'] = IW(df=dim_obs, scale=1e-3*obs_scale**2*jnp.eye(dim_obs))
         self.params['drift_cov'] = self.param_priors['drift_cov'].mode()
 
-    def get_trans_mat(self, params, t):
+    def get_trans_mat(
+        self,
+        params,
+        t
+    ):
         return lax.cond(t % self.steps_per_season == 0,
                         lambda: self._trans_mat,
                         lambda: jnp.eye((self.num_seasons-1)*self.dim_obs))
 
-    def get_trans_cov(self, params, t):
+    def get_trans_cov(
+        self,
+        params,
+        t
+    ):
         return lax.cond(t % self.steps_per_season == 0,
                         lambda: jnp.atleast_2d(params['drift_cov']),
                         lambda: jnp.eye(self.dim_obs)*1e-32)
@@ -462,14 +515,16 @@ class SeasonalTrig(STSComponent):
             then num_steps_per_season = 24.
     """
 
-    def __init__(self,
-                 num_seasons,
-                 num_steps_per_season=1,
-                 allow_drift=True,
-                 drift_cov_prior=None,
-                 initial_state_prior=None,
-                 dim_obs=1,
-                 name='seasonal_trig'):
+    def __init__(
+        self,
+        num_seasons,
+        num_steps_per_season=1,
+        allow_drift=True,
+        drift_cov_prior=None,
+        initial_state_prior=None,
+        dim_obs=1,
+        name='seasonal_trig'
+    ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
 
         self.num_seasons = num_seasons
@@ -503,7 +558,11 @@ class SeasonalTrig(STSComponent):
         # Covariance selection matrix.
         self._cov_select_mat = jnp.eye(_c*dim_obs)
 
-    def initialize_params(self, obs_initial, obs_scale):
+    def initialize_params(
+        self,
+        obs_initial,
+        obs_scale
+    ) -> None:
         # Initialize the distribution of the initial state.
         dim_obs = len(obs_initial)
         initial_mean = jnp.zeros((self.num_seasons-1) * dim_obs)
@@ -514,12 +573,20 @@ class SeasonalTrig(STSComponent):
         self.param_priors['drift_cov'] = IW(df=dim_obs, scale=1e-3*obs_scale**2*jnp.eye(dim_obs))
         self.params['drift_cov'] = self.param_priors['drift_cov'].mode()
 
-    def get_trans_mat(self, params, t):
+    def get_trans_mat(
+        self,
+        params,
+        t
+    ):
         return lax.cond(t % self.steps_per_season == 0,
                         lambda: self._trans_mat,
                         lambda: jnp.eye((self.num_seasons-1)*self.dim_obs))
 
-    def get_trans_cov(self, params, t):
+    def get_trans_cov(
+        self,
+        params,
+        t
+    ):
         return lax.cond(t % self.steps_per_season == 0,
                         lambda: jnp.kron(jnp.eye(self.num_seasons-1), params['drift_cov']),
                         lambda: jnp.eye((self.num_seasons-1)*self.dim_obs)*1e-32)
@@ -560,13 +627,15 @@ class Cycle(STSComponent):
         therefore the period of cycle is 2\pi/freq.
     """
 
-    def __init__(self,
-                 damping_factor_prior=None,
-                 frequency_prior=None,
-                 drift_cov_prior=None,
-                 initial_effect_prior=None,
-                 dim_obs=1,
-                 name='cycle'):
+    def __init__(
+        self,
+        damping_factor_prior=None,
+        frequency_prior=None,
+        drift_cov_prior=None,
+        initial_effect_prior=None,
+        dim_obs=1,
+        name='cycle'
+    ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
 
         self.initial_distribution = MVN(jnp.zeros(2*dim_obs), jnp.eye(2*dim_obs))
@@ -591,7 +660,11 @@ class Cycle(STSComponent):
         # Covariance selection matrix.
         self._cov_select_mat = jnp.kron(jnp.array([[1], [0]]), jnp.eye(dim_obs))
 
-    def initialize_params(self, obs_initial, obs_scale):
+    def initialize_params(
+        self,
+        obs_initial,
+        obs_scale
+    ) -> None:
         # Initialize the distribution of the initial state.
         dim_obs = len(obs_initial)
         initial_mean = jnp.zeros((self.num_seasons-1) * dim_obs)
@@ -602,7 +675,11 @@ class Cycle(STSComponent):
         self.param_priors['drift_cov'] = IW(df=dim_obs, scale=1e-3*obs_scale**2*jnp.eye(dim_obs))
         self.params['drift_cov'] = self.param_priors['drift_cov'].mode()
 
-    def get_trans_mat(self, params, t):
+    def get_trans_mat(
+        self,
+        params,
+        t
+    ):
         freq = params['frequency']
         damp = params['damp']
         _trans_mat = jnp.array([[jnp.cos(freq), jnp.sin(freq)],
@@ -610,7 +687,11 @@ class Cycle(STSComponent):
         trans_mat = damp * _trans_mat
         return jnp.kron(trans_mat, jnp.eye(self.dim_obs))
 
-    def get_trans_cov(self, params, t):
+    def get_trans_cov(
+        self,
+        params,
+        t
+    ):
         return params['drift_cov']
 
     @property
@@ -623,7 +704,7 @@ class Cycle(STSComponent):
 
 
 class LinearRegression(STSRegression):
-    """The linear regression component of the structural time series (STS) model.
+    r"""The linear regression component of the structural time series (STS) model.
 
     The parameter of the linear regression function is the coefficient matrix W.
     The shape of W is (dim_obs, dim_covariates) if no bias term is added, and is
@@ -634,12 +715,14 @@ class LinearRegression(STSRegression):
 
     where X = covariates if add_bias=False and X = [covariates, 1] if add_bias=True.
     """
-    def __init__(self,
-                 dim_covariates,
-                 add_bias=True,
-                 weights_prior=None,
-                 dim_obs=1,
-                 name='linear_regression'):
+    def __init__(
+        self,
+        dim_covariates,
+        add_bias=True,
+        weights_prior=None,
+        dim_obs=1,
+        name='linear_regression'
+    ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
         self.add_bias = add_bias
 
@@ -651,13 +734,21 @@ class LinearRegression(STSRegression):
                                            col_precision=jnp.eye(dim_obs))
         self.params['weights'] = jnp.zeros((dim_inputs, dim_obs))
 
-    def initialize(self, covariates, obs_time_series):
+    def initialize_params(
+        self,
+        covariates,
+        obs_time_series
+    ) -> None:
         if self.add_bias:
             inputs = jnp.concatenate((covariates, jnp.ones((covariates.shape[0], 1))), axis=1)
         W = jnp.linalg.solve(inputs.T @ inputs, inputs.T @ obs_time_series)
         self.params['weights'] = W
 
-    def fit(self, params, covariates):
+    def fit(
+        self,
+        params,
+        covariates
+    ):
         if self.add_bias:
             inputs = jnp.concatenate((covariates, jnp.ones((covariates.shape[0], 1))), axis=1)
             return inputs @ params['weights']

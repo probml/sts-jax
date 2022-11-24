@@ -69,7 +69,7 @@ class StructuralTimeSeries():
         for c in components:
             if isinstance(c, STSRegression):
                 regression = c
-                regression.initialize(covariates, obs_centered_unconstrained)
+                regression.initialize_params(covariates, obs_centered_unconstrained)
                 residuals = regression.fit(regression.params, covariates)
                 obs_scale = jnp.std(jnp.abs(jnp.diff(residuals, axis=0)), axis=0)
         for c in components:
