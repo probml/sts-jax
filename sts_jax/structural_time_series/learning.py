@@ -12,17 +12,19 @@ from dynamax.parameters import to_unconstrained, from_unconstrained, log_det_jac
 from dynamax.utils.utils import ensure_array_has_batch_dim, pytree_slice, pytree_stack
 
 
-def fit_vi(model,
-           initial_params,
-           param_props,
-           num_samples,
-           emissions,
-           inputs=None,
-           optimizer=optax.adam(1e-1),
-           K=1,
-           key=jr.PRNGKey(0),
-           num_step_iters=50,
-           verbose=True):
+def fit_vi(
+    model,
+    initial_params,
+    param_props,
+    num_samples,
+    emissions,
+    inputs=None,
+    optimizer=optax.adam(1e-1),
+    K=1,
+    key=jr.PRNGKey(0),
+    num_step_iters=50,
+    verbose=True
+):
     """
     ADVI approximate the posterior distribtuion p of unconstrained global parameters
     with factorized multivatriate normal distribution:
@@ -107,15 +109,17 @@ def fit_vi(model,
     return samples, losses
 
 
-def fit_hmc(model,
-            initial_params,
-            param_props,
-            num_samples,
-            emissions,
-            inputs=None,
-            key=jr.PRNGKey(0),
-            warmup_steps=100,
-            verbose=True):
+def fit_hmc(
+    model,
+    initial_params,
+    param_props,
+    num_samples,
+    emissions,
+    inputs=None,
+    key=jr.PRNGKey(0),
+    warmup_steps=100,
+    verbose=True
+):
     """Sample parameters of the model using HMC.
     """
     # Make sure the emissions and covariates have batch dimensions

@@ -3,7 +3,6 @@ from collections import OrderedDict
 from dynamax.utils.distributions import (InverseWishart as IW,
                                          MatrixNormalPrecision as MNP)
 from dynamax.parameters import ParameterProperties
-from dynamax.types import PRNGKey
 from dynamax.utils.bijectors import RealToPSDBijector
 from jax import lax
 import jax.numpy as jnp

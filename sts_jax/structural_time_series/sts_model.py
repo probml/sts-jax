@@ -1,4 +1,5 @@
 from collections import OrderedDict
+from dynamax.types import PRNGKey
 import jax.numpy as jnp
 import jax.random as jr
 from jax import vmap, jit
@@ -13,19 +14,18 @@ from .learning import fit_hmc, fit_vi
 import tensorflow_probability.substrates.jax.bijectors as tfb
 
 
-RealToPSD = RealToPSDBijector()
-
-
 class StructuralTimeSeries():
-    """The class of the Bayesian structural time series (STS) model:
+    r"""The class of the Bayesian structural time series (STS) model:
 
-    y_t = H_t @ z_t + \err_t,   \err_t \sim N(0, \Sigma_t) 
-    z_{t+1} = F_t @ z_t + R_t @ \eta_t, eta_t \sim N(0, Q_t)
+    $$y_t = H_t @ z_t + \epsilon_t, \qquad  \epsilon_t \sim \mathcal{N}(0, \Sigma_t)$$
+    $$z_{t+1} = F_t z_t + R_t \eta_t, \qquad eta_t \sim \mathcal{N}(0, Q_t)$$
 
-    H_t: emission matrix
-    F_t: transition matrix of the dynamics
-    R_t: subset of clumns of base vector I, and is called'selection matrix'
-    Q_t: nonsingular covariance matrix of the latent state
+    where
+
+    * $H_t$: emission matrix
+    * $F_t$: transition matrix of the dynamics
+    * $R_t$: subset of clumns of base vector I, and is called'selection matrix'
+    * $Q_t$: nonsingular covariance matrix of the latent state
 
     Construct a structural time series (STS) model from a list of components
 
@@ -37,17 +37,18 @@ class StructuralTimeSeries():
         name (str): name of the STS model
     """
 
-    def __init__(self,
-                 components,
-                 obs_time_series,
-                 obs_distribution='Gaussian',
-                 obs_cov_props=None,
-                 obs_cov_prior=None,
-                 obs_cov=None,
-                 covariates=None,
-                 constant_offset=True,
-                 name='sts_model'):
-
+    def __init__(
+        self,
+        components,
+        obs_time_series,
+        obs_distribution='Gaussian',
+        obs_cov_props=None,
+        obs_cov_prior=None,
+        obs_cov=None,
+        covariates=None,
+        constant_offset=True,
+        name='sts_model'
+    ) -> None:
         names = [c.name for c in components]
         assert len(set(names)) == len(names), "Components should not share the same name."
         assert obs_distribution in ['Gaussian', 'Poisson'],\
@@ -58,7 +59,7 @@ class StructuralTimeSeries():
         self.obs_distribution = obs_distribution
         self.dim_covariate = covariates.shape[-1] if covariates is not None else 0
 
-        obs_unconstrained = self.unconstrain_obs(obs_time_series)
+        obs_unconstrained = self._unconstrain_obs(obs_time_series)
         self.offset = obs_unconstrained.mean(axis=0) if constant_offset else 0.
         obs_centered_unconstrained = obs_unconstrained - self.offset
 
@@ -99,7 +100,7 @@ class StructuralTimeSeries():
 
         if self.obs_distribution == 'Gaussian':
             if obs_cov_props is None:
-                obs_cov_props = Prop(trainable=True, constrainer=RealToPSD)
+                obs_cov_props = Prop(trainable=True, constrainer=RealToPSDBijector())
             if obs_cov_prior is None:
                 obs_cov_prior = IW(df=self.dim_obs, scale=1e-4*obs_scale**2*jnp.eye(self.dim_obs))
             if obs_cov is None:
@@ -133,29 +134,40 @@ class StructuralTimeSeries():
                                           self.dim_covariate)
         return sts_ssm
 
-    def sample(self, key, num_timesteps, covariates=None):
+    def sample(
+        self,
+        key,
+        num_timesteps,
+        covariates=None
+    ):
         """Given parameters, sample latent states and corresponding observed time series.
         """
         sts_ssm = self.as_ssm()
         states, timeseries = sts_ssm.sample(key, num_timesteps, covariates)
         return self.offset + timeseries
 
-    def marginal_log_prob(self, obs_time_series, covariates=None):
-        obs_centered = self.center_obs(obs_time_series)
+    def marginal_log_prob(
+        self,
+        obs_time_series,
+        covariates=None
+    ):
+        obs_centered = self._center_obs(obs_time_series)
         sts_ssm = self.as_ssm()
         return sts_ssm.marginal_log_prob(sts_ssm.params, obs_centered, covariates)
 
-    def fit_mle(self,
-                obs_time_series,
-                covariates=None,
-                num_steps=1000,
-                initial_params=None,
-                param_props=None,
-                optimizer=optax.adam(1e-1),
-                key=jr.PRNGKey(0)):
+    def fit_mle(
+        self,
+        obs_time_series,
+        covariates=None,
+        num_steps=1000,
+        initial_params=None,
+        param_props=None,
+        optimizer=optax.adam(1e-1),
+        key=jr.PRNGKey(0)
+    ):
         """Maximum likelihood estimate of parameters of the STS model
         """
-        obs_centered = self.center_obs(obs_time_series)
+        obs_centered = self._center_obs(obs_time_series)
         sts_ssm = self.as_ssm()
         curr_params = sts_ssm.params if initial_params is None else initial_params
         if param_props is None:
@@ -167,15 +179,17 @@ class StructuralTimeSeries():
 
         return optimal_params, losses
 
-    def fit_vi(self,
-               num_samples,
-               obs_time_series,
-               covariates=None,
-               initial_params=None,
-               param_props=None,
-               num_step_iters=50,
-               verbose=True,
-               key=jr.PRNGKey(0)):
+    def fit_vi(
+        self,
+        num_samples,
+        obs_time_series,
+        covariates=None,
+        initial_params=None,
+        param_props=None,
+        num_step_iters=50,
+        verbose=True,
+        key: PRNGKey=jr.PRNGKey(0)
+    ):
         """Sample parameters of the STS model from ADVI posterior.
 
         Parameters of the STS model includes:
@@ -190,22 +204,24 @@ class StructuralTimeSeries():
         if param_props is None:
             param_props = self.param_props
 
-        obs_centered = self.center_obs(obs_time_series)
+        obs_centered = self._center_obs(obs_time_series)
         param_samps, losses = fit_vi(
             sts_ssm, initial_params, param_props, num_samples, obs_centered, covariates,
             key, verbose, num_step_iters, verbose)
         elbo = -losses
         return param_samps, elbo
 
-    def fit_hmc(self,
-                num_samples,
-                obs_time_series,
-                covariates=None,
-                initial_params=None,
-                param_props=None,
-                warmup_steps=100,
-                verbose=True,
-                key=jr.PRNGKey(0)):
+    def fit_hmc(
+        self,
+        num_samples,
+        obs_time_series,
+        covariates=None,
+        initial_params=None,
+        param_props=None,
+        warmup_steps=100,
+        verbose=True,
+        key: PRNGKey=jr.PRNGKey(0)
+    ):
         """Sample parameters of the STS model from their posterior distributions.
 
         Parameters of the STS model includes:
@@ -220,16 +236,22 @@ class StructuralTimeSeries():
         if param_props is None:
             param_props = self.param_props
 
-        obs_centered = self.center_obs(obs_time_series)
+        obs_centered = self._center_obs(obs_time_series)
         param_samps, param_log_probs = fit_hmc(
             sts_ssm, initial_params, param_props, num_samples, obs_centered, covariates,
             key, warmup_steps, verbose)
         return param_samps, param_log_probs
 
-    def posterior_sample(self, sts_params, obs_time_series, covariates=None, key=jr.PRNGKey(0)):
+    def posterior_sample(
+        self,
+        sts_params,
+        obs_time_series,
+        covariates=None,
+        key: PRNGKey=jr.PRNGKey(0)
+    ):
         """Sample latent states given model parameters."""
         sts_params = self._ensure_param_has_batch_dim(sts_params)
-        obs_centered = self.center_obs(obs_time_series)
+        obs_centered = self._center_obs(obs_time_series)
         sts_ssm = self.as_ssm()
         @jit
         def single_sample(sts_param):
@@ -238,14 +260,20 @@ class StructuralTimeSeries():
             #     self.trans_mat_getters, self.trans_cov_getters, self.obs_mats, self.cov_select_mats,
             #     self.initial_distributions, self.reg_func, self.obs_distribution)
             ts_means, ts = sts_ssm.posterior_sample(sts_param, obs_centered, covariates, key)
-            return [self.uncenter_obs(ts_means), self.uncenter_obs(ts)]
+            return [self._uncenter_obs(ts_means), self._uncenter_obs(ts)]
 
         samples = vmap(single_sample)(sts_params)
 
         return {'means': samples[0], 'observations': samples[1]}
 
-    def decompose_by_component(self, sts_params, obs_time_series, covariates=None,
-                               num_pos_samples=100, key=jr.PRNGKey(0)):
+    def decompose_by_component(
+        self,
+        sts_params,
+        obs_time_series,
+        covariates=None,
+        num_pos_samples=100,
+        key: PRNGKey=jr.PRNGKey(0)
+    ):
         """Decompose the STS model into components and return the means and variances
            of the marginal posterior of each component.
 
@@ -277,7 +305,7 @@ class StructuralTimeSeries():
             sts_params = self.fit_hmc(num_pos_samples, obs_time_series, covariates, key=key)
 
         sts_params = self._ensure_param_has_batch_dim(sts_params)
-        obs_centered = self.center_obs(obs_time_series)
+        obs_centered = self._center_obs(obs_time_series)
 
         @jit
         def single_decompose(sts_param):
@@ -300,17 +328,19 @@ class StructuralTimeSeries():
 
         return component_dists
 
-    def forecast(self,
-                 sts_params,
-                 obs_time_series,
-                 num_forecast_steps,
-                 past_covariates=None,
-                 forecast_covariates=None,
-                 key=jr.PRNGKey(0)):
+    def forecast(
+        self,
+        sts_params,
+        obs_time_series,
+        num_forecast_steps,
+        past_covariates=None,
+        forecast_covariates=None,
+        key: PRNGKey=jr.PRNGKey(0)
+    ):
         """Forecast.
         """
         sts_params = self._ensure_param_has_batch_dim(sts_params)
-        obs_centered = self.center_obs(obs_time_series)
+        obs_centered = self._center_obs(obs_time_series)
 
         @jit
         def single_forecast(sts_param):
@@ -318,7 +348,7 @@ class StructuralTimeSeries():
             means, covs, ts = sts_ssm.forecast(
                 sts_param, obs_centered, num_forecast_steps,
                 past_covariates, forecast_covariates, key)
-            return [self.uncenter_obs(means), covs, self.uncenter_obs(ts)]
+            return [self._uncenter_obs(means), covs, self._uncenter_obs(ts)]
 
         forecasts = vmap(single_forecast)(sts_params)
 
@@ -337,22 +367,22 @@ class StructuralTimeSeries():
         else:
             return tree_map(lambda x: jnp.expand_dims(x, 0), sts_params)
 
-    def constrain_obs(self, obs_time_series):
+    def _constrain_obs(self, obs_time_series):
         if self.obs_distribution == 'Gaussian':
             return obs_time_series
         elif self.obs_distribution == 'Poisson':
             return jnp.exp(obs_time_series)
 
-    def unconstrain_obs(self, obs_time_series_constrained):
+    def _unconstrain_obs(self, obs_time_series_constrained):
         if self.obs_distribution == 'Gaussian':
             return obs_time_series_constrained
         elif self.obs_distribution == 'Poisson':
             return jnp.log(obs_time_series_constrained)
 
-    def center_obs(self, obs_time_series):
-        obs_unconstrained = self.unconstrain_obs(obs_time_series)
-        return self.constrain_obs(obs_unconstrained - self.offset)
+    def _center_obs(self, obs_time_series):
+        obs_unconstrained = self._unconstrain_obs(obs_time_series)
+        return self._constrain_obs(obs_unconstrained - self.offset)
 
-    def uncenter_obs(self, obs_time_series_centered):
-        obs_centered_unconstrained = self.unconstrain_obs(obs_time_series_centered)
-        return self.constrain_obs(obs_centered_unconstrained + self.offset)
+    def _uncenter_obs(self, obs_time_series_centered):
+        obs_centered_unconstrained = self._unconstrain_obs(obs_time_series_centered)
+        return self._constrain_obs(obs_centered_unconstrained + self.offset)
