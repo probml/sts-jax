@@ -1,19 +1,18 @@
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from dynamax.utils.distributions import (
-    InverseWishart as IW, MatrixNormalPrecision as MNP)
-from dynamax.parameters import ParameterProperties as Prop
+from dynamax.utils.distributions import (InverseWishart as IW,
+                                         MatrixNormalPrecision as MNP)
+from dynamax.parameters import ParameterProperties
+from dynamax.types import PRNGKey
 from dynamax.utils.bijectors import RealToPSDBijector
 from jax import lax
 import jax.numpy as jnp
+from jaxtyping import Float, Array
 from tensorflow_probability.substrates.jax.distributions import (
     MultivariateNormalFullCovariance as MVN,
     MultivariateNormalDiag as MVNDiag,
     Uniform)
 import tensorflow_probability.substrates.jax.bijectors as tfb
-
-
-RealToPSD = RealToPSDBijector()
 
 
 #########################
@@ -22,37 +21,61 @@ RealToPSD = RealToPSDBijector()
 
 
 class STSComponent(ABC):
-    """Meta class of latent component of structural time series (STS) models.
+    r"""A base class for latent component of structural time series (STS) models.
 
-    A latent component of the STS model has following attributes:
+    **Abstract Methods**
 
-    name (string): name of the latend component.
-    dim_obs (int): dimension of the observation in each step of the observed time series.
-    initial_distribution (MVN): an instance of MultivariateNormalFullCovariance,
-        specifies the distribution for the inital state.
-    params (OrderedDict): parameters of the component need to be learned in model fitting.
-    param_props (OrderedDict): properties of each item in 'params'.
-        Each item is an instance of ParameterProperties, which specifies constrainer
-        of the parameter and whether the parameter is trainable.
-    param_priors (OrderedDict): prior distributions for each item in 'params'.
+    A latent component of the STS model that inherits from 'STSComponent' must implement
+    a few key functions and properties:
+
+    * :meth: 'initialize_params' initializes parameters of the latent component,
+        given the initial value and scale of steps of the observed time series.
+    * :meth: 'get_trans_mat' returns the transition matrix, $F[t]$, of the latent component
+        at time step $t$.
+    * :meth: 'get_trans_cov' returns the nonsingular covariance matrix $Q[t]$ of the latent
+        component at time step $t$.
+    * :attr: 'obs_mat' returns the observation (emission) matrix $H$ for the latent component.
+    * :attr: 'cov_select_mat' returns the selecting matrix $R$ that expands the nonsingular
+        covariance matrix $Q[t]$ in each time step into a (possibly singular) convarince 
+        matrix of shape (dim_state, dim_state).
+    * :attr: 'name' returns the name of the latent component.
+    * :attr: 'dim_obs' returns the dimension of the observation in each step of the observed
+        time series.
+    * :attr: 'initial_distribution' returns the initial_distribution of the initial latent
+        state of the component, which is an instance of the class of
+        MultivariateNormalFullCovariance
+        from tensorflow_probability.substrates.jax.distributions.
+    * :attr: 'params' returns parameters of the component, which is an instance of OrderedDict,
+        forming the pytree structure of Jax.
+    * :attr: 'param_props' returns parameter properties of each item in 'params'.
+        param_props has the same pytree structure with params, and each leaf is an instance of
+        dynamax.parameters.ParameterProperties, which specifies constrainer of each parameter
+        and whether that parameter is trainable.
     """
 
-    def __init__(self, name, dim_obs=1):
+    def __init__(
+        self,
+        name: str,
+        dim_obs: int=1
+    ) -> None:
         self.name = name
         self.dim_obs = dim_obs
         self.initial_distribution = None
 
-        self.param_props = OrderedDict()
-        self.param_priors = OrderedDict()
         self.params = OrderedDict()
+        self.param_props = OrderedDict()
 
     @abstractmethod
-    def initialize_params(self, obs_initial, obs_scale):
-        """Initialize parameters in self.params given the scale of the observed time series.
+    def initialize_params(
+        self,
+        obs_initial: Float[Array, "dim_obs"],
+        obs_scale: Float[Array, "dim_obs"]
+    ) -> None:
+        r"""Initialize parameters of the component given the scale of the observed time series.
 
         Args:
-            obs_initial (self.dim_obs,): the first observation in the observed time series.
-            obs_scale (self.dim_obs,): scale of the observed time series.
+            obs_initial: the first observation in the observed time series $z_0$.
+            obs_scale: vector of standard deviations of each dimension of the observed time series.
 
         Returns:
             No returns. Change self.params and self.initial_distributions directly.
@@ -60,38 +83,63 @@ class STSComponent(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_trans_mat(self, params, t):
-        """Compute the transition matrix at step t of the latent dynamics.
+    def get_trans_mat(
+        self,
+        params: OrderedDict,
+        t: int
+    ) -> Float[Array, "dim_state dim_state"]:
+        r"""Compute the transition matrix, $F[t]$, of the latent component at time step $t$.
 
         Args:
-            params (OrderedDict): parameters based on which the transition matrix
-                is to be evalueated. Has the same tree structure with self.params.
-            t (int): time steps
+            params: parameters of the latent component, having the same tree structure with
+            self.params.
+            t: time point at which the transition matrix is to be evaluted.
 
         Returns:
-            trans_mat (dim_of_state, dim_of_state): transition matrix at step t
+            transition matrix, $F[t]$, of the latent component at time step $t$
         """
         raise NotImplementedError
 
     @abstractmethod
-    def get_trans_cov(self, params, t):
-        """Nonsingular covariance matrix"""
+    def get_trans_cov(
+        self,
+        params: OrderedDict,
+        t: int
+    ) -> Float[Array, "rank_state rank_state"]:
+        r"""Compute the nonsingular covariance matrix, $Q[t]$, of the latent component at
+            time step $t$.
+
+        Args:
+            params: parameters of the latent component, having the same tree structure with
+            self.params.
+            t: time point at which the transition matrix is to be evaluted.
+
+        Returns:
+            nonsingular covariance matrix, $Q[t]$, of the latent component at time step $t$
+        """
         raise NotImplementedError
 
     @property
     @abstractmethod
-    def obs_mat(self):
+    def obs_mat(self) -> Float[Array, "dim_obs dim_state"]:
+        r"""Returns the observation (emission) matrix $H$ for the latent component."""
         raise NotImplementedError
 
     @property
     @abstractmethod
-    def cov_select_mat(self):
-        """Select matrix that makes the covariance matrix singular"""
+    def cov_select_mat(self) -> Float[Array, "dim_state, rank_state"]:
+        r"""Returns the selecting matrix $R$ that expands the nonsingular covariance matrix
+            $Q[t]$ in each time step into a (possibly singular) convarince matrix of shape
+            (dim_state, dim_state).
+
+        Returns:
+            selecting matrix $R$ of shape (dim_state, rank_state)
+        """
         raise NotImplementedError
 
 
 class STSRegression(ABC):
-    """Meta class of regression component of structural time series (STS) models.
+    r"""Meta class of regression component of structural time series (STS) models.
 
     The regression component has the same dimension as the observed time series.
     This component will appear in the observation (emission) model in the state space model
@@ -153,7 +201,7 @@ class STSRegression(ABC):
 
 
 class LocalLinearTrend(STSComponent):
-    """The local linear trend component of the structual time series (STS) model
+    r"""The local linear trend component of the structual time series (STS) model
 
     The latent state is [level, slope], having dimension 2 * dim_obs. The dynamics is
 
@@ -177,11 +225,11 @@ class LocalLinearTrend(STSComponent):
 
         self.initial_distribution = MVN(jnp.zeros(2*dim_obs), jnp.eye(2*dim_obs))
 
-        self.param_props['cov_level'] = Prop(trainable=True, constrainer=RealToPSD)
+        self.param_props['cov_level'] = ParameterProperties(trainable=True, constrainer=RealToPSDBijector())
         self.param_priors['cov_level'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['cov_level'] = self.param_priors['cov_level'].mode()
 
-        self.param_props['cov_slope'] = Prop(trainable=True, constrainer=RealToPSD)
+        self.param_props['cov_slope'] = ParameterProperties(trainable=True, constrainer=RealToPSDBijector())
         self.param_priors['cov_slope'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['cov_slope'] = self.param_priors['cov_slope'].mode()
 
@@ -243,11 +291,11 @@ class Autoregressive(STSComponent):
         self.order = order
         self.initial_distribution = MVN(jnp.zeros(order*dim_obs), jnp.eye(order*dim_obs))
 
-        self.param_props['cov_level'] = Prop(trainable=True, constrainer=RealToPSD)
+        self.param_props['cov_level'] = ParameterProperties(trainable=True, constrainer=RealToPSDBijector())
         self.param_priors['cov_level'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['cov_level'] = self.param_priors['cov_level'].mode()
 
-        self.param_props['coef'] = Prop(trainable=True, constrainer=tfb.Tanh())
+        self.param_props['coef'] = ParameterProperties(trainable=True, constrainer=tfb.Tanh())
         self.param_priors['coef'] = MVNDiag(jnp.zeros(order), jnp.ones(order))
         self.params['coef'] = self.param_priors['coef'].mode()
 
@@ -335,7 +383,7 @@ class SeasonalDummy(STSComponent):
         _c = self.num_seasons - 1
         self.initial_distribution = MVN(jnp.zeros(_c*dim_obs), jnp.eye(_c*dim_obs))
 
-        self.param_props['drift_cov'] = Prop(trainable=True, constrainer=RealToPSD)
+        self.param_props['drift_cov'] = ParameterProperties(trainable=True, constrainer=RealToPSDBijector())
         self.param_priors['drift_cov'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['drift_cov'] = self.param_priors['drift_cov'].mode()
 
@@ -430,7 +478,7 @@ class SeasonalTrig(STSComponent):
         _c = num_seasons - 1
         self.initial_distribution = MVN(jnp.zeros(_c*dim_obs), jnp.eye(_c*dim_obs))
 
-        self.param_props['drift_cov'] = Prop(trainable=True, constrainer=RealToPSD)
+        self.param_props['drift_cov'] = ParameterProperties(trainable=True, constrainer=RealToPSDBijector())
         self.param_priors['drift_cov'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['drift_cov'] = self.param_priors['drift_cov'].mode()
 
@@ -524,16 +572,16 @@ class Cycle(STSComponent):
         self.initial_distribution = MVN(jnp.zeros(2*dim_obs), jnp.eye(2*dim_obs))
 
         # Parameters of the component
-        self.param_props['damp'] = Prop(trainable=True, constrainer=tfb.Sigmoid())
+        self.param_props['damp'] = ParameterProperties(trainable=True, constrainer=tfb.Sigmoid())
         self.param_priors['damp'] = Uniform(low=0., high=1.)
         self.params['damp'] = self.param_priors['damp'].mode()
 
-        self.param_props['frequency'] = Prop(trainable=True,
+        self.param_props['frequency'] = ParameterProperties(trainable=True,
                                              constrainer=tfb.Sigmoid(low=0., high=2*jnp.pi))
         self.param_priors['frequency'] = Uniform(low=0., high=2*jnp.pi)
         self.params['frequency'] = self.param_priors['frequency'].mode()
 
-        self.param_props['drift_cov'] = Prop(trainable=True, constrainer=RealToPSD)
+        self.param_props['drift_cov'] = ParameterProperties(trainable=True, constrainer=RealToPSDBijector())
         self.param_priors['drift_cov'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['drift_cov'] = self.param_priors['drift_cov'].mode()
 
@@ -597,7 +645,7 @@ class LinearRegression(STSRegression):
 
         dim_inputs = dim_covariates + 1 if add_bias else dim_covariates
 
-        self.param_props['weights'] = Prop(trainable=True, constrainer=tfb.Identity())
+        self.param_props['weights'] = ParameterProperties(trainable=True, constrainer=tfb.Identity())
         self.param_priors['weights'] = MNP(loc=jnp.zeros((dim_inputs, dim_obs)),
                                            row_covariance=jnp.eye(dim_inputs),
                                            col_precision=jnp.eye(dim_obs))
