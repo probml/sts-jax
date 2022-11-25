@@ -4,7 +4,9 @@ from functools import partial
 import jax.numpy as jnp
 import jax.random as jr
 import jax.scipy as jsp
+from jaxtyping import Float, Array
 from dynamax.ssm import SSM
+from dynamax.types import PRNGKey, Scalar
 from dynamax.generalized_gaussian_ssm import (
     ParamsGGSSM,
     EKFIntegrals,
@@ -20,10 +22,20 @@ from dynamax.linear_gaussian_ssm import (
     # lgssm_smoother,
     # lgssm_posterior_sample
     )
-from .inference import lgssm_filter, lgssm_smoother, lgssm_posterior_sample
+from inference import lgssm_filter, lgssm_smoother, lgssm_posterior_sample
+from sts_model import ParamsSTS, ParamPropertiesSTS
+from tensorflow_probability.substrates.jax import distributions as tfd
 from tensorflow_probability.substrates.jax.distributions import (
     MultivariateNormalFullCovariance as MVN,
     Poisson as Pois)
+from typing import List, Callable, Optional
+
+
+class ParamPriorsSTS(OrderedDict):
+    """A :class: 'OrderdedDict' with each item being an instance of :class: 'OrderedDict',
+        having the same pytree structure with 'ParamsSTS'.
+    """
+    pass
 
 
 class StructuralTimeSeriesSSM(SSM):
@@ -43,17 +55,17 @@ class StructuralTimeSeriesSSM(SSM):
     """
 
     def __init__(self,
-                 params,
-                 param_props,
-                 param_priors,
-                 trans_mat_getters,
-                 trans_cov_getters,
-                 obs_mats,
-                 cov_select_mats,
-                 initial_distributions,
-                 reg_func=None,
-                 obs_distribution='Gaussian',
-                 dim_covariate=0):
+                 params: ParamsSTS,
+                 param_props: ParamPropertiesSTS,
+                 param_priors: ParamPriorsSTS,
+                 trans_mat_getters: List,
+                 trans_cov_getters: List,
+                 obs_mats: List,
+                 cov_select_mats: List,
+                 initial_distributions: List,
+                 reg_func: Callable=None,
+                 obs_distribution: str='Gaussian',
+                 dim_covariates: int=0):
         self.params = params
         self.param_props = param_props
         self.param_priors = param_priors
@@ -77,7 +89,7 @@ class StructuralTimeSeriesSSM(SSM):
         # Dimensions of the SSM.
         self.dim_obs, self.dim_state = self.obs_mat.shape
         self.dim_comp = self.get_trans_cov(self.params, 0).shape[0]
-        self.dim_covariate = dim_covariate
+        self.dim_covariates = dim_covariates
 
         # Pick out the regression component if there is one.
         if reg_func is not None:
@@ -91,9 +103,12 @@ class StructuralTimeSeriesSSM(SSM):
 
     @property
     def inputs_shape(self):
-        return (self.dim_covariate,)
+        return (self.dim_covariates,)
 
-    def log_prior(self, params):
+    def log_prior(
+        self,
+        params: ParamsSTS
+    ) -> Scalar:
         """Log prior probability of parameters.
         """
         lp = 0.
@@ -114,7 +129,11 @@ class StructuralTimeSeriesSSM(SSM):
         """
         raise NotImplementedError
 
-    def emission_distribution(self, state, inputs):
+    def emission_distribution(
+        self,
+        state,
+        inputs
+    ) -> tfd.Distribution:
         """Depends on the distribution family of the observation.
         """
         if self.obs_distribution == 'Gaussian':
@@ -123,7 +142,13 @@ class StructuralTimeSeriesSSM(SSM):
             unc_rates = self.obs_mat @ state + inputs
             return Pois(rate=self._emission_constrainer(unc_rates))
 
-    def sample(self, params, num_timesteps, covariates=None, key=jr.PRNGKey(0)):
+    def sample(
+        self,
+        params: ParamsSTS,
+        num_timesteps: int,
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
+        key: PRNGKey=jr.PRNGKey(0)
+    ) -> None:
         """Sample a sequence of latent states and emissions with the given parameters.
         """
         if covariates is not None:
@@ -155,7 +180,12 @@ class StructuralTimeSeriesSSM(SSM):
             _step, initial_state, (key2s, inputs, jnp.arange(num_timesteps)))
         return states, time_series
 
-    def marginal_log_prob(self, params, obs_time_series, covariates=None):
+    def marginal_log_prob(
+        self,
+        params: ParamsSTS,
+        obs_time_series: Float[Array, "num_timesteps dim_obs"],
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None
+    ) -> Scalar:
         """Compute log marginal likelihood of observations.
         """
         if covariates is not None:
@@ -172,7 +202,13 @@ class StructuralTimeSeriesSSM(SSM):
             params=ssm_params, emissions=obs_time_series, inputs=inputs)
         return filtered_posterior.marginal_loglik
 
-    def posterior_sample(self, params, obs_time_series, covariates=None, key=jr.PRNGKey(0)):
+    def posterior_sample(
+        self,
+        params: ParamsSTS,
+        obs_time_series: Float[Array, "num_timesteps dim_obs"],
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
+        key: PRNGKey=jr.PRNGKey(0)
+    ) -> None:
         """Posterior sample.
         """
         if covariates is not None:
@@ -198,7 +234,12 @@ class StructuralTimeSeriesSSM(SSM):
         obs = vmap(obs_sampler)(states, inputs, key2s)
         return obs_means, obs
 
-    def component_posterior(self, params, obs_time_series, covariates=None):
+    def component_posterior(
+        self,
+        params: ParamsSTS,
+        obs_time_series: Float[Array, "num_timesteps dim_obs"],
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None
+    ) -> OrderedDict:
         """Smoothing by component.
         """
         component_pos = OrderedDict()
@@ -237,12 +278,12 @@ class StructuralTimeSeriesSSM(SSM):
         return component_pos
 
     def forecast(self,
-                 params,
-                 obs_time_series,
-                 num_forecast_steps,
-                 past_covariates=None,
-                 forecast_covariates=None,
-                 key=jr.PRNGKey(0)):
+                 params: ParamsSTS,
+                 obs_time_series: Float[Array, "num_timesteps dim_obs"],
+                 num_forecast_steps: int,
+                 past_covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
+                 forecast_covariates: Optional[Float[Array, "num_forecast_steps dim_covariates"]]=None,
+                 key: PRNGKey=jr.PRNGKey(0)) -> None:
         """Forecast the time series.
         """
         if forecast_covariates is not None:
@@ -309,10 +350,16 @@ class StructuralTimeSeriesSSM(SSM):
     def one_step_predict(self, params, obs_time_series, covariates=None):
         """One step forward prediction.
            This is a by product of the Kalman filter.
+           A general method of one-step-forward prediction is to be added to the class
+           dynamax.LinearGaussianSSM
         """
         raise NotImplementedError
 
-    def get_trans_mat(self, params, t):
+    def get_trans_mat(
+        self,
+        params: ParamsSTS,
+        t: int
+    ) -> Float[Array, "dim_state dim_state"]:
         """Evaluate the transition matrix of the latent state at time step t,
            conditioned on parameters of the model.
         """
@@ -324,7 +371,11 @@ class StructuralTimeSeriesSSM(SSM):
             trans_mat.append(c_trans_mat)
         return jsp.linalg.block_diag(*trans_mat)
 
-    def get_trans_cov(self, params, t):
+    def get_trans_cov(
+        self,
+        params: ParamsSTS,
+        t: int
+    ) -> Float[Array, "order_state order_state"]:
         """Evaluate the covariance of the latent dynamics at time step t,
            conditioned on parameters of the model.
         """
