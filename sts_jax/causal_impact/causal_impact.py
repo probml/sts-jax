@@ -1,7 +1,9 @@
 import jax.numpy as jnp
 import jax.random as jr
-
+from jaxtyping import Float, Array
 import matplotlib.pyplot as plt
+from typing import Optional
+from dynamax.types import PRNGKey
 
 import sts_jax.structural_time_series.sts_model as sts
 
@@ -59,14 +61,16 @@ class CausalImpact():
         print(msg)
 
 
-def causal_impact(obs_time_series,
-                  intervention_timepoint,
-                  obs_distribution,
-                  covariates=None,
-                  sts_model=None,
-                  confidence_level=0.95,
-                  key=jr.PRNGKey(0),
-                  num_samples=200):
+def causal_impact(
+    obs_time_series: Float[Array, "num_timesteps dim_obs"],
+    intervention_timepoint: int,
+    obs_distribution: str='Gaussian',
+    covariates: Optional[Float[Array, "num_timesteps dim_obs"]]=None,
+    sts_model: sts.StructuralTimeSeries=None,
+    confidence_level: Float=0.95,
+    key: PRNGKey=jr.PRNGKey(0),
+    num_samples: int=200
+) -> CausalImpact:
     """Inferring the causal impact of an intervention on a time series,
     given the observed timeseries before and after the intervention.
 
