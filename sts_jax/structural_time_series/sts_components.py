@@ -317,10 +317,10 @@ class LocalLinearTrend(STSComponent):
 
 
 class Autoregressive(STSComponent):
-    """The autoregressive component of the structural time series (STS) model.
+    r"""The autoregressive component of the structural time series (STS) model.
 
     Args (in addition to name and dim_obs):
-        p (int): the autoregressive order
+        'p' is the autoregressive order
     """
     def __init__(
         self,
@@ -371,7 +371,7 @@ class Autoregressive(STSComponent):
         self,
         params: ParamsSTSComponent,
         t: int
-    ) -> Float[Array, ""]:
+    ) -> Float[Array, "order*dim_obs order*dim_obs"]:
         if self.order == 1:
             trans_mat = params['coef'][:, None]
         else:
@@ -383,43 +383,51 @@ class Autoregressive(STSComponent):
         self,
         params: ParamsSTSComponent,
         t: int
-    ) -> Float[Array, ""]:
+    ) -> Float[Array, "dim_obs dim_obs"]:
         return params['cov_level']
 
     @property
-    def obs_mat(self) -> Float[Array, ""]:
+    def obs_mat(self) -> Float[Array, "dim_obs order*dim_obs"]:
         return self._obs_mat
 
     @property
-    def cov_select_mat(self) -> Float[Array, ""]:
+    def cov_select_mat(self) -> Float[Array, "order*dim_obs dim_obs"]:
         return self._cov_select_mat
 
 
 class SeasonalDummy(STSComponent):
     r"""The (dummy) seasonal component of the structual time series (STS) model
 
-    Since at any step t the seasonal effect has following constraint
+    Since at any step $t$ the seasonal effect has following constraint
 
-        sum_{j=1}^{num_seasons} s_{t-j} = 0,
+    $$sum_{j=1}^{num_seasons} s_{t-j} = 0 $$,
 
     the seasonal effect (random) of next time step takes the form:
 
-        s_{t+1} = - sum_{j=1}^{num_seasons-1} s_{t+1-j} + w_{t+1}
+    $$ s_{t+1} = - sum_{j=1}^{num_seasons-1} s_{t+1-j} + w_{t+1}$$
 
-    and the last term w_{t+1} is the stochastic noise of the seasonal effect
-    following a normal distribution with mean zero and covariance drift_cov.
+    where
+
+    * $w_{t+1}$ is the stochastic noise of the seasonal effect following a normal distribution
+        with mean 0 and covariance $drift_cov$.
     So the latent state corresponding to the seasonal component has dimension
-    (num_seasons - 1) * dim_obs
+    $(num_seasons - 1) * dim_obs$
 
-    If dim_obs = 1, and suppose num_seasons = 4
+    If $dim_obs = 1$, and suppose that $num_seasons = 4$, the transition matrix and
+    the observation matrix is
+    $$
+    trans_mat = \begin{bmatrix}
+                 -1 & -1 & -1 \\
+                  1 &  0 &  0 \\
+                  0 &  1 &  0
+                \end{bmatrix},
+    \qquad
+    obs_mat = [ 1, 0, 0 ]
+    $$
 
-                    | -1, -1, -1 |
-        trans_mat = |  1,  0   0 |    obs_mat = [ 1, 0, 0 ]
-                    |  0,  1,  0 |,
-
-    Args (in addition to name and dim_obs):
-        num_seasons (int): number of seasons.
-        num_steps_per_season: consecutive steps that each seasonal effect does not change.
+    Args (in addition to 'name' and 'dim_obs'):
+        'num_seasons' is the number of seasons.
+        'num_steps_per_season' is consecutive steps that each seasonal effect does not change.
             For example, if a STS model has a weekly seasonal effect but the data is measured
             daily, then num_steps_per_season = 7;
             and if a STS model has a daily seasonal effect but the data is measured hourly,
@@ -477,7 +485,7 @@ class SeasonalDummy(STSComponent):
         self,
         params: ParamsSTSComponent,
         t: int
-    ) -> Float[Array, ]:
+    ) -> Float[Array, "(num_seasons-1)*dim_obs (num_seasons-1)*dim_obs"]:
         return lax.cond(t % self.steps_per_season == 0,
                         lambda: self._trans_mat,
                         lambda: jnp.eye((self.num_seasons-1)*self.dim_obs))
@@ -486,49 +494,57 @@ class SeasonalDummy(STSComponent):
         self,
         params: ParamsSTSComponent,
         t: int
-    ) -> Float[Array, ""]:
+    ) -> Float[Array, "dim_obs dim_obs"]:
         return lax.cond(t % self.steps_per_season == 0,
                         lambda: jnp.atleast_2d(params['drift_cov']),
                         lambda: jnp.eye(self.dim_obs)*1e-32)
 
     @property
-    def obs_mat(self) -> Float[Array, ""]:
+    def obs_mat(self) -> Float[Array, "dim_obs (num_seasons-1)*dim_obs"]:
         return self._obs_mat
 
     @property
-    def cov_select_mat(self) -> Float[Array, ""]:
+    def cov_select_mat(self) -> Float[Array, "(num_seasons-1)*dim_obs dim_obs"]:
         return self._cov_select_mat
 
 
 class SeasonalTrig(STSComponent):
-    """The trigonometric seasonal component of the structual time series (STS) model.
+    r"""The trigonometric seasonal component of the structual time series (STS) model.
 
-    The seasonal effect (random) of next time step takes the form (let s:=num_seasons):
+    The seasonal effect (random) of next time step takes the form:
 
-        \gamma_t = \sum_{j=1}^{floor(s/2)} \gamma_{jt}
+    $$\gamma_t = \sum_{j=1}^{\lfloor s/2 \rfloor} \gamma_{j,t}$$
+
+    and the state is update by
+
+    $$\gamma_{j, t+1}  =  \cos(\lambda_j) \gamma_{j,t} + \sin(\lambda_j) \gamma^*_{jt}  + w_{j,t}$$
+    $$\gamma^*_{j, t+1} = -\sin(\lambda_j) \gamma_{j,t} + \cos(\lambda_j) \gamma^*_{jt}  + w^*_{j,t}$$
 
     where
+    * $s$ is number of seasons.
+    * $j = 1, ..., \lfloor s/2 \rfloor$.
+    * $w_{jt}$ and $w^*_{jt}$ are stochastic noises of the seasonal effect following a normal
+        distribution with mean zeros and a common covariance $drift_cov$ for all $j$ and $t$.
 
-        \gamma_{j, t+1}  =  cos(\lambda_j) \gamma_{jt} + sin(\lambda_j) \gamma*_{jt}  + w_{jt}
-        \gamma*_{j, t+1} = -sin(\lambda_j) \gamma_{jt} + cos(\lambda_j) \gamma*_{jt}  + w*_{jt}
+    The latent state corresponding to the seasonal component has dimension $(s-1) * dim_obs$.
+    If $s$ is odd, then $s-1 = 2 * (s-1)/2$, which means thare are $j = 1,...,(s-1)/2$ blocks.
+    If $s$ is even, then $s-1 = 2 * (s/2) - 1$, which means there are $j = 1,...(s/2)$ blocks,
+    but we remove the last dimension in this case since this part does not play role in the
+    observation.
 
-    for j = 1, ..., floor(s/2).
-    The last term w_{jt}, w^*_{jt} are stochastic noises of the seasonal effect following
-    a normal distribution with mean zeros and a common covariance drift_cov for all j and t.
+    If $dim_obs = 1$, for $j = \lfloor (s-1)/2 \rfloor$:
+    $$
+    trans_mat_j = \begin{bmatrix}
+                    \cos(\lambda_j) & \sin(\lambda_j) \\
+                   -\sin(\lambda_j) & \cos(\lambda_j)
+                  \end{bmatrix},
+    \qquad
+    obs_mat_j = [ 1, 0 ]
+    $$
 
-    The latent state corresponding to the seasonal component has dimension (s-1) * dim_obs.
-    If s is odd, then s-1 = 2 * (s-1)/2, which means thare are j = 1,...,(s-1)/2 blocks.
-    If s is even, then s-1 = 2 * (s/2) - 1, which means there are j = 1,...(s/2) blocks,
-    but we remove the last dimension since this part does not play role in the observation.
-
-    If dim_obs = 1, for j = floor((s-1)/2):
-
-        trans_mat_j = |  cos(\lambda_j), sin(\lambda_j) |    obs_mat_j = [ 1, 0 ]
-                      | -sin(\lambda_j), cos(\lambda_j) |,
-
-    Args (in addition to name and dim_obs):
-        num_seasons (int): number of seasons.
-        num_steps_per_season: consecutive steps that each seasonal effect does not change.
+    Args (in addition to 'name' and 'dim_obs'):
+        'num_seasons' is the number of seasons.
+        'num_steps_per_season' is consecutive steps that each seasonal effect does not change.
             For example, if a STS model has a weekly seasonal effect but the data is measured
             daily, then num_steps_per_season = 7;
             and if a STS model has a daily seasonal effect but the data is measured hourly,
@@ -553,7 +569,8 @@ class SeasonalTrig(STSComponent):
         _c = num_seasons - 1
         self.initial_distribution = MVN(jnp.zeros(_c*dim_obs), jnp.eye(_c*dim_obs))
 
-        self.param_props['drift_cov'] = ParameterProperties(trainable=True, constrainer=RealToPSDBijector())
+        self.param_props['drift_cov'] = ParameterProperties(trainable=True,
+                                                            constrainer=RealToPSDBijector())
         self.param_priors['drift_cov'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['drift_cov'] = self.param_priors['drift_cov'].mode()
 
@@ -580,8 +597,8 @@ class SeasonalTrig(STSComponent):
 
     def initialize_params(
         self,
-        obs_initial: Float[Array, ""],
-        obs_scale: Float[Array, ""]
+        obs_initial: Float[Array, "dim_obs"],
+        obs_scale: Float[Array, "dim_obs"]
     ) -> None:
         # Initialize the distribution of the initial state.
         dim_obs = len(obs_initial)
@@ -597,7 +614,7 @@ class SeasonalTrig(STSComponent):
         self,
         params: ParamsSTSComponent,
         t: int
-    ) -> Float[Array, ""]:
+    ) -> Float[Array, "(num_seasons-1)*dim_obs (num_seasons-1)*dim_obs"]:
         return lax.cond(t % self.steps_per_season == 0,
                         lambda: self._trans_mat,
                         lambda: jnp.eye((self.num_seasons-1)*self.dim_obs))
@@ -606,17 +623,17 @@ class SeasonalTrig(STSComponent):
         self,
         params: ParamsSTSComponent,
         t: int
-    ) -> Float[Array, ""]:
+    ) -> Float[Array, "(num_seasons-1)*dim_obs (num_seasons-1)*dim_obs"]:
         return lax.cond(t % self.steps_per_season == 0,
                         lambda: jnp.kron(jnp.eye(self.num_seasons-1), params['drift_cov']),
                         lambda: jnp.eye((self.num_seasons-1)*self.dim_obs)*1e-32)
 
     @property
-    def obs_mat(self) -> Float[Array, ""]:
+    def obs_mat(self) -> Float[Array, "dim_obs (num_seassons-1)*dim_obs"]:
         return self._obs_mat
 
     @property
-    def cov_select_mat(self) -> Float[Array, ""]:
+    def cov_select_mat(self) -> Float[Array, "(num_seasons-1)*dim_obs (num_seasons-1)*dim_obs"]:
         return self._cov_select_mat
 
 
@@ -625,26 +642,35 @@ class Cycle(STSComponent):
 
     The cycle effect (random) of next time step takes the form:
 
-        \gamma_t = cos(freq) + sin(freq)
+    $$\gamma_t = \cos(freq) + \sin(freq)$$
+
+    and the state is updated by
+
+    $$\gamma_{t+1}   =  \cos(freq) \gamma_t + \sin(freq) \gamma^*_t  + w_t$$
+    $$\gamma^*_{t+1} = -\sin(freq) \gamma_t + \cos(freq) \gamma^*_t  + w^*_t$$
 
     where
 
-        \gamma_{t+1}  =  cos(freq) \gamma_t + sin(freq) \gamma*_t  + w_t
-        \gamma*_{t+1} = -sin(freq) \gamma_t + cos(freq) \gamma*_t  + w*_t
+    * $w_t$, and $w^*_t$ are stochastic noises of the cycle effect following
+        a normal distribution with mean zeros and a common covariance $drift_cov$ for all $t$.
 
-    The last term w_t, w^*_t are stochastic noises of the cycle effect following
-    a normal distribution with mean zeros and a common covariance drift_cov for all t.
+    The latent state corresponding to the cycle component has dimension $2 * dim_obs$.
 
-    The latent state corresponding to the cycle component has dimension 2 * dim_obs.
+    If $dim_obs = 1$, the transition matrix and the observation matrix is:
+    $$
+    trans_mat = damp \cdot \begin{bmatrix}
+                              \cos(freq) & \sin(freq) \\
+                             -\sin(freq) & \cos(freq)
+                             \end{bmatrix},
+    \qquad
+    obs_mat = [ 1, 0 ].
+    $$
 
-    If dim_obs = 1:
+    where
 
-        trans_mat_j = damp * |  cos(freq), sin(freq) |    obs_mat_j = [ 1, 0 ]
-                             | -sin(freq), cos(freq) |,
-
-    damp (scalar): damping factor, 0 < damp <1.
-    freq (scalar): frequency factor, 0 < freq < 2\pi,
-        therefore the period of cycle is 2\pi/freq.
+    * $damp$ is the damping factor, and $0 < damp <1$.
+    * $freq$ is the frequency factor, and $0 < freq < 2\pi$,
+        therefore the period of cycle is $2\pi/freq$.
     """
 
     def __init__(
@@ -700,7 +726,7 @@ class Cycle(STSComponent):
         self,
         params: ParamsSTSComponent,
         t: int
-    ) -> Float[Array, ""]:
+    ) -> Float[Array, "2*dim_obs 2*dim_obs"]:
         freq = params['frequency']
         damp = params['damp']
         _trans_mat = jnp.array([[jnp.cos(freq), jnp.sin(freq)],
@@ -712,29 +738,33 @@ class Cycle(STSComponent):
         self,
         params: ParamsSTSComponent,
         t: int
-    ) -> Float[Array, ""]:
+    ) -> Float[Array, "dim_obs dim_obs"]:
         return params['drift_cov']
 
     @property
-    def obs_mat(self) -> Float[Array, ""]:
+    def obs_mat(self) -> Float[Array, "dim_obs 2*dim_obs"]:
         return self._obs_mat
 
     @property
-    def cov_select_mat(self) -> Float[Array, ""]:
+    def cov_select_mat(self) -> Float[Array, "2*dim_obs dim_obs"]:
         return self._cov_select_mat
+
 
 
 class LinearRegression(STSRegression):
     r"""The linear regression component of the structural time series (STS) model.
-
-    The parameter of the linear regression function is the coefficient matrix W.
-    The shape of W is (dim_obs, dim_covariates) if no bias term is added, and is
-    (dim_obs, dim_covariates + 1) is a bias term is added at the end of the covariates.
-    The regression function has the form:
-
-        f(W, X) = W @ X
-
-    where X = covariates if add_bias=False and X = [covariates, 1] if add_bias=True.
+    
+    The formula of the linear regression component is
+    
+    $$y_t = W x_t,$$
+    
+    where 
+    
+    * $u_t$ is the model inputs at time step $t$.
+        $u_t = covariates[t]$ is no bias term is to be added, and
+        $u_t = [covariates[t], 1]$ is the bias term is a bias term is to be added to the model.
+    * $W$ is the coefficient matrix of shape $(dim_obs, dim_covariates)$ if no bias term, and
+        $(dim_obs, dim_covariates + 1)$ is a bias term is to be added.
     """
     def __init__(
         self,
@@ -749,20 +779,21 @@ class LinearRegression(STSRegression):
 
         dim_inputs = dim_covariates + 1 if add_bias else dim_covariates
 
-        self.param_props['weights'] = ParameterProperties(trainable=True, constrainer=tfb.Identity())
-        self.param_priors['weights'] = MNP(loc=jnp.zeros((dim_inputs, dim_obs)),
-                                           row_covariance=jnp.eye(dim_inputs),
-                                           col_precision=jnp.eye(dim_obs))
-        self.params['weights'] = jnp.zeros((dim_inputs, dim_obs))
+        self.param_props['weights'] = ParameterProperties(trainable=True,
+                                                          constrainer=tfb.Identity())
+        self.param_priors['weights'] = MNP(loc=jnp.zeros((dim_obs, dim_inputs)),
+                                           row_covariance=jnp.eye(dim_obs),
+                                           col_precision=jnp.eye(dim_inputs))
+        self.params['weights'] = jnp.zeros((dim_obs, dim_inputs))
 
     def initialize_params(
         self,
-        covariates: Float[Array, ""],
-        obs_time_series: Float[Array, ""]
+        covariates: Float[Array, "num_timesteps dim_covariates"],
+        obs_time_series: Float[Array, "num_timesteps dim_obs"]
     ) -> None:
         if self.add_bias:
             inputs = jnp.concatenate((covariates, jnp.ones((covariates.shape[0], 1))), axis=1)
-        W = jnp.linalg.solve(inputs.T @ inputs, inputs.T @ obs_time_series)
+        W = jnp.linalg.solve(inputs.T @ inputs, inputs.T @ obs_time_series).T
         self.params['weights'] = W
 
     def get_reg_value(
@@ -772,6 +803,6 @@ class LinearRegression(STSRegression):
     ) -> Float[Array, "num_timesteps dim_obs"]:
         if self.add_bias:
             inputs = jnp.concatenate((covariates, jnp.ones((covariates.shape[0], 1))), axis=1)
-            return inputs @ params['weights']
+            return inputs @ params['weights'].T
         else:
-            return covariates @ params['weights']
+            return covariates @ params['weights'].T
