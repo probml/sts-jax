@@ -56,6 +56,9 @@ class STSComponent(ABC):
         param_props has the same pytree structure with 'params', and each leaf is an instance
         of dynamax.parameters.ParameterProperties, which specifies constrainer of
         each parameter and whether that parameter is trainable.
+    * :attr: 'param_priors' returns prior distribution of each item in 'params'.
+        param_priors has the same pytree structure with 'params', and each leaf is an instance
+        of tfd.Distribution.
     """
 
     def __init__(
@@ -69,6 +72,7 @@ class STSComponent(ABC):
 
         self.params = OrderedDict()
         self.param_props = OrderedDict()
+        self.param_priors = OrderedDict()
 
     @abstractmethod
     def initialize_params(
