@@ -6,12 +6,25 @@ from jax import vmap, jit
 from jax.tree_util import tree_map, tree_flatten
 from dynamax.utils.distributions import InverseWishart as IW
 from dynamax.parameters import ParameterProperties as Prop
-from sts_jax.structural_time_series.sts_ssm import StructuralTimeSeriesSSM
-from sts_jax.structural_time_series.sts_components import *
+from sts_ssm import StructuralTimeSeriesSSM
+from sts_components import *
 from dynamax.utils.bijectors import RealToPSDBijector
+from typing import List, Union, Optional
 import optax
 from .learning import fit_hmc, fit_vi
 import tensorflow_probability.substrates.jax.bijectors as tfb
+
+
+class ParamsSTS(OrderedDict):
+    """A :class: 'OrderdedDict' with each item being an instance of :class: 'OrderedDict'."""
+    pass
+
+
+class ParamPropertiesSTS(OrderedDict):
+    """A :class: 'OrderdedDict' with each item being an instance of :class: 'OrderedDict',
+        having the same pytree structure with 'ParamsSTS'.
+    """
+    pass
 
 
 class StructuralTimeSeries():
@@ -30,24 +43,19 @@ class StructuralTimeSeries():
     Construct a structural time series (STS) model from a list of components
 
     Args:
-        components: list of components
-        observation_covariance:
-        observation_covariance_prior: InverseWishart prior for the observation covariance matrix
-        observed_time_series: has shape (batch_size, timesteps, dim_observed_timeseries)
-        name (str): name of the STS model
+        'components' is a list of components
     """
 
     def __init__(
         self,
-        components,
-        obs_time_series,
-        obs_distribution='Gaussian',
-        obs_cov_props=None,
+        components: List[Union[STSComponent, STSRegression]],
+        obs_time_series: Float[Array, "num_timesteps dim_obs"],
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
+        obs_distribution: str='Gaussian',
         obs_cov_prior=None,
-        obs_cov=None,
-        covariates=None,
-        constant_offset=True,
-        name='sts_model'
+        obs_cov_constrainer=None,
+        constant_offset: bool=True,
+        name: str='sts_model'
     ) -> None:
         names = [c.name for c in components]
         assert len(set(names)) == len(names), "Components should not share the same name."
@@ -99,12 +107,12 @@ class StructuralTimeSeries():
                 self.cov_select_mats[c.name] = c.cov_select_mat
 
         if self.obs_distribution == 'Gaussian':
-            if obs_cov_props is None:
-                obs_cov_props = Prop(trainable=True, constrainer=RealToPSDBijector())
             if obs_cov_prior is None:
                 obs_cov_prior = IW(df=self.dim_obs, scale=1e-4*obs_scale**2*jnp.eye(self.dim_obs))
-            if obs_cov is None:
-                obs_cov = obs_cov_prior.mode()
+            if obs_cov_constrainer is None:
+                obs_cov_constrainer = RealToPSDBijector()
+            obs_cov_props = Prop(trainable=True, constrainer=obs_cov_constrainer)
+            obs_cov = obs_cov_prior.mode()
             self.param_props['obs_model'] = OrderedDict({'cov': obs_cov_props})
             self.param_priors['obs_model'] = OrderedDict({'cov': obs_cov_prior})
             self.params['obs_model'] = OrderedDict({'cov': obs_cov})
@@ -136,9 +144,9 @@ class StructuralTimeSeries():
 
     def sample(
         self,
-        key,
-        num_timesteps,
-        covariates=None
+        num_timesteps: int,
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
+        key: PRNGKey=jr.PRNGKey(0),
     ):
         """Given parameters, sample latent states and corresponding observed time series.
         """
@@ -148,8 +156,8 @@ class StructuralTimeSeries():
 
     def marginal_log_prob(
         self,
-        obs_time_series,
-        covariates=None
+        obs_time_series: Float[Array, "num_timesteps dim_obs"],
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None
     ):
         obs_centered = self._center_obs(obs_time_series)
         sts_ssm = self.as_ssm()
@@ -157,13 +165,13 @@ class StructuralTimeSeries():
 
     def fit_mle(
         self,
-        obs_time_series,
-        covariates=None,
-        num_steps=1000,
-        initial_params=None,
-        param_props=None,
-        optimizer=optax.adam(1e-1),
-        key=jr.PRNGKey(0)
+        obs_time_series: Float[Array, "num_timesteps dim_obs"],
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
+        num_steps: int=1000,
+        initial_params: ParamsSTS=None,
+        param_props: ParamPropertiesSTS=None,
+        optimizer: optax.GradientTransformation=optax.adam(1e-1),
+        key: PRNGKey=jr.PRNGKey(0)
     ):
         """Maximum likelihood estimate of parameters of the STS model
         """
@@ -181,13 +189,13 @@ class StructuralTimeSeries():
 
     def fit_vi(
         self,
-        num_samples,
-        obs_time_series,
-        covariates=None,
-        initial_params=None,
-        param_props=None,
-        num_step_iters=50,
-        verbose=True,
+        num_samples: int,
+        obs_time_series: Float[Array, "num_timesteps dim_obs"],
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
+        initial_params: ParamsSTS=None,
+        param_props: ParamPropertiesSTS=None,
+        num_step_iters: int=50,
+        verbose: bool=True,
         key: PRNGKey=jr.PRNGKey(0)
     ):
         """Sample parameters of the STS model from ADVI posterior.
@@ -213,13 +221,13 @@ class StructuralTimeSeries():
 
     def fit_hmc(
         self,
-        num_samples,
-        obs_time_series,
-        covariates=None,
-        initial_params=None,
-        param_props=None,
-        warmup_steps=100,
-        verbose=True,
+        num_samples: int,
+        obs_time_series: Float[Array, "num_timesteps dim_obs"],
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
+        initial_params: ParamsSTS=None,
+        param_props: ParamPropertiesSTS=None,
+        warmup_steps: int=100,
+        verbose: bool=True,
         key: PRNGKey=jr.PRNGKey(0)
     ):
         """Sample parameters of the STS model from their posterior distributions.
@@ -244,9 +252,9 @@ class StructuralTimeSeries():
 
     def posterior_sample(
         self,
-        sts_params,
-        obs_time_series,
-        covariates=None,
+        sts_params: ParamsSTS,
+        obs_time_series: Float[Array, "num_timesteps dim_obs"],
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
         key: PRNGKey=jr.PRNGKey(0)
     ):
         """Sample latent states given model parameters."""
@@ -268,10 +276,10 @@ class StructuralTimeSeries():
 
     def decompose_by_component(
         self,
-        sts_params,
-        obs_time_series,
-        covariates=None,
-        num_pos_samples=100,
+        sts_params: ParamsSTS,
+        obs_time_series: Float[Array, "num_timesteps dim_obs"],
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
+        num_pos_samples: int=100,
         key: PRNGKey=jr.PRNGKey(0)
     ):
         """Decompose the STS model into components and return the means and variances
@@ -330,11 +338,11 @@ class StructuralTimeSeries():
 
     def forecast(
         self,
-        sts_params,
-        obs_time_series,
-        num_forecast_steps,
-        past_covariates=None,
-        forecast_covariates=None,
+        sts_params: ParamsSTS,
+        obs_time_series: Float[Array, "num_timesteps dim_obs"],
+        num_forecast_steps: int,
+        past_covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
+        forecast_covariates: Optional[Float[Array, "num_forecast_steps dim_covariates"]]=None,
         key: PRNGKey=jr.PRNGKey(0)
     ):
         """Forecast.

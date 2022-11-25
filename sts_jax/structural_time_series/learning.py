@@ -5,26 +5,31 @@ from functools import partial
 from jax import jit, lax, vmap, value_and_grad
 import jax.numpy as jnp
 import jax.random as jr
+from jaxtyping import Float, Array
 from jax.tree_util import tree_map, tree_flatten, tree_leaves
 import jax.scipy.stats.norm as norm
 import optax
 from dynamax.parameters import to_unconstrained, from_unconstrained, log_det_jac_constrain
+from dynamax.types import PRNGKey
 from dynamax.utils.utils import ensure_array_has_batch_dim, pytree_slice, pytree_stack
+from sts_ssm import StructuralTimeSeriesSSM
+from sts_model import ParamsSTS, ParamPropertiesSTS
+from typing import Optional, Tuple
 
 
 def fit_vi(
-    model,
-    initial_params,
-    param_props,
-    num_samples,
-    emissions,
-    inputs=None,
-    optimizer=optax.adam(1e-1),
-    K=1,
-    key=jr.PRNGKey(0),
-    num_step_iters=50,
-    verbose=True
-):
+    model: StructuralTimeSeriesSSM,
+    initial_params: ParamsSTS,
+    param_props: ParamPropertiesSTS,
+    num_samples: int,
+    emissions: Float[Array, "num_timesteps dim_obs"],
+    inputs: Optional[Float[Array, "num_timesteps dim_inputs"]]=None,
+    optimizer: optax.GradientTransformation=optax.adam(1e-1),
+    K: int=1,
+    key: PRNGKey=jr.PRNGKey(0),
+    num_step_iters: int=50,
+    verbose: bool=True
+) -> Tuple[]:
     """
     ADVI approximate the posterior distribtuion p of unconstrained global parameters
     with factorized multivatriate normal distribution:
@@ -110,16 +115,16 @@ def fit_vi(
 
 
 def fit_hmc(
-    model,
-    initial_params,
-    param_props,
-    num_samples,
-    emissions,
-    inputs=None,
-    key=jr.PRNGKey(0),
-    warmup_steps=100,
-    verbose=True
-):
+    model: StructuralTimeSeriesSSM,
+    initial_params: ParamsSTS,
+    param_props: ParamPropertiesSTS,
+    num_samples: int,
+    emissions: Float[Array, "num_timesteps dim_obs"],
+    inputs: Optional[Float[Array, "num_timesteps dim_inputs"]]=None,
+    key: PRNGKey=jr.PRNGKey(0),
+    warmup_steps: int=100,
+    verbose: bool=True
+) -> Tuple[]:
     """Sample parameters of the model using HMC.
     """
     # Make sure the emissions and covariates have batch dimensions
