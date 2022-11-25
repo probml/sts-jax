@@ -317,10 +317,33 @@ class LocalLinearTrend(STSComponent):
 
 
 class Autoregressive(STSComponent):
-    r"""The autoregressive component of the structural time series (STS) model.
+    r"""The autoregressive (AR) latent component of the structural time series (STS) model.
 
-    Args (in addition to name and dim_obs):
-        'p' is the autoregressive order
+    The autoregressive model of order $p$, i.e., AR(p) is defined as
+    
+    $$z_t = \sum_{j=1}^{p} w_j z_{t-j} + \epsilon_t$$
+    
+    where 
+    
+    * $w_j$'s are coefficients of the autoregression. It is required that $|w_j| < 1 $
+        to make sure that the autoregressive model is stationary.
+    * $\epsilon_t$ is the disturbance that follows a Gaussian distribution with mean 0
+        and covariance $cov_level$.
+    
+    There are multiple ways to formulate the AR(p) component in the STS model. We set the
+    state vector of the component to be the history of the latent state, with the dimension
+    $p*dim_obs$.
+    
+    If $dim_obs=1$ and assume $p=3$, the transition matrix and the observation matrix is
+    $$
+    F = \begin{bmatrix}
+         w_1 & w_2 & w_3 \\
+          1  &  0  &  0  \\
+          0  &  1  &  0
+        \end{bmatrix},
+    \qquad
+    H = [1, 0, 0]
+    $$
     """
     def __init__(
         self,
@@ -328,7 +351,7 @@ class Autoregressive(STSComponent):
         dim_obs: int=1,
         name: str='ar',
         coefficients_prior: tfd.Distribution=None,
-        level_cov_prior: tfd.Distribution=None,
+        cov_level_prior: tfd.Distribution=None,
         initial_state_prior: tfd.MultivariateNormalFullCovariance=None,
         coefficient_constrainer: tfb.Bijector=None,
         cov_constrainer: tfb.Bijector=None
@@ -367,16 +390,24 @@ class Autoregressive(STSComponent):
         self.param_priors['cov_level'] = IW(df=dim_obs, scale=1e-3*obs_scale**2*jnp.eye(dim_obs))
         self.params['cov_level'] = self.param_priors['cov_level'].mode()
 
+    # def get_trans_mat(
+    #     self,
+    #     params: ParamsSTSComponent,
+    #     t: int
+    # ) -> Float[Array, "order*dim_obs order*dim_obs"]:
+    #     if self.order == 1:
+    #         trans_mat = params['coef'][:, None]
+    #     else:
+    #         trans_mat = jnp.concatenate((params['coef'][:, None],
+    #                                      jnp.eye(self.order)[:, :-1]), axis=1)
+    #     return jnp.kron(trans_mat, jnp.eye(self.dim_obs))
+
     def get_trans_mat(
         self,
         params: ParamsSTSComponent,
         t: int
     ) -> Float[Array, "order*dim_obs order*dim_obs"]:
-        if self.order == 1:
-            trans_mat = params['coef'][:, None]
-        else:
-            trans_mat = jnp.concatenate((params['coef'][:, None],
-                                         jnp.eye(self.order)[:, :-1]), axis=1)
+        trans_mat = jnp.vstack((params['coef'], jnp.eye(self.order)[:-1]))
         return jnp.kron(trans_mat, jnp.eye(self.dim_obs))
 
     def get_trans_cov(
@@ -416,13 +447,13 @@ class SeasonalDummy(STSComponent):
     If $dim_obs = 1$, and suppose that $num_seasons = 4$, the transition matrix and
     the observation matrix is
     $$
-    trans_mat = \begin{bmatrix}
-                 -1 & -1 & -1 \\
-                  1 &  0 &  0 \\
-                  0 &  1 &  0
-                \end{bmatrix},
+    F = \begin{bmatrix}
+         -1 & -1 & -1 \\
+          1 &  0 &  0 \\
+          0 &  1 &  0
+        \end{bmatrix},
     \qquad
-    obs_mat = [ 1, 0, 0 ]
+    H = [ 1, 0, 0 ]
     $$
 
     Args (in addition to 'name' and 'dim_obs'):
@@ -508,7 +539,7 @@ class SeasonalDummy(STSComponent):
         return self._cov_select_mat
 
 
-class SeasonalTrig(STSComponent):
+class SeasonalTrig(STSComponent):0
     r"""The trigonometric seasonal component of the structual time series (STS) model.
 
     The seasonal effect (random) of next time step takes the form:
@@ -534,12 +565,12 @@ class SeasonalTrig(STSComponent):
 
     If $dim_obs = 1$, for $j = \lfloor (s-1)/2 \rfloor$:
     $$
-    trans_mat_j = \begin{bmatrix}
-                    \cos(\lambda_j) & \sin(\lambda_j) \\
-                   -\sin(\lambda_j) & \cos(\lambda_j)
-                  \end{bmatrix},
+    F_j = \begin{bmatrix}
+            \cos(\lambda_j) & \sin(\lambda_j) \\
+           -\sin(\lambda_j) & \cos(\lambda_j)
+          \end{bmatrix},
     \qquad
-    obs_mat_j = [ 1, 0 ]
+    H_j = [ 1, 0 ]
     $$
 
     Args (in addition to 'name' and 'dim_obs'):
@@ -658,12 +689,12 @@ class Cycle(STSComponent):
 
     If $dim_obs = 1$, the transition matrix and the observation matrix is:
     $$
-    trans_mat = damp \cdot \begin{bmatrix}
-                              \cos(freq) & \sin(freq) \\
-                             -\sin(freq) & \cos(freq)
-                             \end{bmatrix},
+    F = damp * \begin{bmatrix}
+                \cos(freq) & \sin(freq) \\
+               -\sin(freq) & \cos(freq)
+               \end{bmatrix},
     \qquad
-    obs_mat = [ 1, 0 ].
+    H = [ 1, 0 ].
     $$
 
     where
