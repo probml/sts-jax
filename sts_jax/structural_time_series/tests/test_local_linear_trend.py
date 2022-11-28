@@ -2,8 +2,8 @@ import jax.numpy as jnp
 import jax.random as jr
 from jax import lax
 
-from dynamax.structural_time_series.models.sts_model import StructuralTimeSeries as STS
-from dynamax.structural_time_series.models.sts_components import LocalLinearTrend
+from sts_jax.structural_time_series.sts_model import StructuralTimeSeries as STS
+from sts_jax.structural_time_series.sts_components import LocalLinearTrend
 
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -100,10 +100,11 @@ def test_local_linear_trend_forecast(time_steps=150, key=jr.PRNGKey(3)):
                                                              obs_time_series)
     dynamax_forecast = dynamax_model.forecast(dynamax_params, obs_time_series,
                                               num_forecast_steps=50)
-    dynamax_posterior_mean = dynamax_posterior['local_linear_trend']['pos_mean'].squeeze()
+    dynamax_posterior_mean = dynamax_model._uncenter_obs(
+        dynamax_posterior['local_linear_trend']['pos_mean']).squeeze()
     dynamax_posterior_cov = dynamax_posterior['local_linear_trend']['pos_cov'].squeeze()
-    dynamax_forecast_mean = dynamax_forecast['means'].squeeze()
-    dynamax_forecast_cov = dynamax_forecast['covariances'].squeeze()
+    dynamax_forecast_mean = jnp.concatenate(dynamax_forecast).mean(axis=0).squeeze()
+    dynamax_forecast_cov = jnp.concatenate(dynamax_forecast).var(axis=0).squeeze()
 
     # Compare posterior inference by tfp and dynamax.
     # In comparing the smoothed posterior, we omit the first 5 time steps,
@@ -112,37 +113,9 @@ def test_local_linear_trend_forecast(time_steps=150, key=jr.PRNGKey(3)):
     # the first few states.
     len_step = jnp.abs(tfp_posterior_mean[1:]-tfp_posterior_mean[:-1]).mean()
     assert jnp.allclose(tfp_posterior_mean[5:], dynamax_posterior_mean[5:], atol=len_step)
-    assert jnp.allclose(tfp_posterior_scale[5:], jnp.sqrt(dynamax_posterior_cov)[5:], rtol=1e-1)
+    assert jnp.allclose(tfp_posterior_scale[5:], jnp.sqrt(dynamax_posterior_cov)[5:], rtol=1e-2)
     # Compoare forecast by tfp and dynamax.
-    assert jnp.allclose(tfp_forecast_mean, dynamax_forecast_mean, atol=0.5*len_step)
-    assert jnp.allclose(tfp_forecast_scale, jnp.sqrt(dynamax_forecast_cov), rtol=5e-2)
-
-
-# def test_local_linear_trend_hmc(time_steps=150, key=jr.PRNGKey(3)):
-
-#     tfp_model, tfp_params, dynamax_model, dynamax_params, obs_time_series, vi_dists =\
-#         _build_models(time_steps, key)
-
-#     # Run hmc in tfp module
-#     tfp_initial_state = [tfp_params[p.name] for p in tfp_model.parameters]
-#     # Set step sizes using the unconstrained variational distribution.
-#     tfp_initial_step_size = [vi_dists[p.name].stddev() for p in tfp_model.parameters]
-#     tfp_samples, _ = tfp.sts.fit_with_hmc(tfp_model, obs_time_series, num_results=100,
-#                                           num_warmup_steps=50,
-#                                           initial_state=tfp_initial_state,
-#                                           initial_step_size=tfp_initial_step_size)
-#     tfp_scale_level = jnp.array(tfp_samples[1]).mean()
-#     tfp_scale_slope = jnp.array(tfp_samples[2]).mean()
-#     tfp_scale_obs = jnp.array(tfp_samples[0]).mean()
-
-#     # Run hmc in dynamax
-#     dynamax_samples, _ = dynamax_model.fit_hmc(100, obs_time_series,
-#                                                warmup_steps=50,
-#                                                initial_params=dynamax_params)
-#     dynamax_cov_level = dynamax_samples['local_linear_trend']['cov_level'].mean()
-#     dynamax_cov_slope = dynamax_samples['local_linear_trend']['cov_slope'].mean()
-#     dynamax_cov_obs = dynamax_samples['obs_model']['cov'].mean()
-
-#     assert jnp.allclose(tfp_scale_level, jnp.sqrt(dynamax_cov_level), rtol=1e-2)
-#     assert jnp.allclose(tfp_scale_slope, jnp.sqrt(dynamax_cov_slope), rtol=1e-2)
-#     assert jnp.allclose(tfp_scale_obs, jnp.sqrt(dynamax_cov_obs), rtol=1e-2)
+    # (Skipped because the forecast mean and variances are now computed as sample mean and variance,
+    # for dynamax model)
+    # assert jnp.allclose(tfp_forecast_mean, dynamax_forecast_mean, atol=0.5*len_step)
+    # assert jnp.allclose(tfp_forecast_scale, jnp.sqrt(dynamax_forecast_cov), rtol=5e-2)

@@ -278,16 +278,21 @@ class LocalLinearTrend(STSComponent):
         cov_constrainer: tfb.Bijector=None
     ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
+        self.level_cov_pri = level_cov_prior
+        self.slope_cov_pri = slope_cov_prior
+        self.initial_level_pri = initial_level_prior
+        self.initial_slope_pri = initial_slope_prior
+        self.cov_constrain = RealToPSDBijector() if cov_constrainer is None else cov_constrainer
 
         self.initial_distribution = MVN(jnp.zeros(2*dim_obs), jnp.eye(2*dim_obs))
 
         self.param_props['cov_level'] = ParameterProperties(trainable=True,
-                                                            constrainer=RealToPSDBijector())
+                                                            constrainer=self.cov_constrain)
         self.param_priors['cov_level'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['cov_level'] = self.param_priors['cov_level'].mode()
 
         self.param_props['cov_slope'] = ParameterProperties(trainable=True,
-                                                            constrainer=RealToPSDBijector())
+                                                            constrainer=self.cov_constrain)
         self.param_priors['cov_slope'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['cov_slope'] = self.param_priors['cov_slope'].mode()
 
@@ -383,15 +388,22 @@ class Autoregressive(STSComponent):
         cov_constrainer: tfb.Bijector=None
     ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
+        self.coef_pri = coefficients_prior
+        self.cov_level_pri = cov_level_prior
+        self.initial_state_pri = initial_state_prior
+        self.coef_constrain = tfb.Tanh() if coefficient_constrainer is None else coefficient_constrainer
+        self.cov_constrain = RealToPSDBijector() if cov_constrainer is None else cov_constrainer
 
         self.order = order
         self.initial_distribution = MVN(jnp.zeros(order*dim_obs), jnp.eye(order*dim_obs))
 
-        self.param_props['cov_level'] = ParameterProperties(trainable=True, constrainer=RealToPSDBijector())
+        self.param_props['cov_level'] = ParameterProperties(trainable=True,
+                                                            constrainer=self.cov_constrain)
         self.param_priors['cov_level'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['cov_level'] = self.param_priors['cov_level'].mode()
 
-        self.param_props['coef'] = ParameterProperties(trainable=True, constrainer=tfb.Tanh())
+        self.param_props['coef'] = ParameterProperties(trainable=True,
+                                                       constrainer=self.coef_constrain)
         self.param_priors['coef'] = MVNDiag(jnp.zeros(order), jnp.ones(order))
         self.params['coef'] = self.param_priors['coef'].mode()
 
@@ -415,18 +427,6 @@ class Autoregressive(STSComponent):
         # Initialize parameters.
         self.param_priors['cov_level'] = IW(df=dim_obs, scale=1e-3*obs_scale**2*jnp.eye(dim_obs))
         self.params['cov_level'] = self.param_priors['cov_level'].mode()
-
-    # def get_trans_mat(
-    #     self,
-    #     params: ParamsSTSComponent,
-    #     t: int
-    # ) -> Float[Array, "order*dim_obs order*dim_obs"]:
-    #     if self.order == 1:
-    #         trans_mat = params['coef'][:, None]
-    #     else:
-    #         trans_mat = jnp.concatenate((params['coef'][:, None],
-    #                                      jnp.eye(self.order)[:, :-1]), axis=1)
-    #     return jnp.kron(trans_mat, jnp.eye(self.dim_obs))
 
     def get_trans_mat(
         self,
@@ -502,6 +502,9 @@ class SeasonalDummy(STSComponent):
         cov_constrainer: tfb.Bijector=None
     ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
+        self.drift_cov_pri = drift_cov_prior
+        self.initial_effect_pri = initial_effect_prior
+        self.cov_constrain = RealToPSDBijector() if cov_constrainer is None else cov_constrainer
 
         self.num_seasons = num_seasons
         self.steps_per_season = num_steps_per_season
@@ -509,7 +512,8 @@ class SeasonalDummy(STSComponent):
         _c = self.num_seasons - 1
         self.initial_distribution = MVN(jnp.zeros(_c*dim_obs), jnp.eye(_c*dim_obs))
 
-        self.param_props['drift_cov'] = ParameterProperties(trainable=True, constrainer=RealToPSDBijector())
+        self.param_props['drift_cov'] = ParameterProperties(trainable=True,
+                                                            constrainer=self.cov_constrain)
         self.param_priors['drift_cov'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['drift_cov'] = self.param_priors['drift_cov'].mode()
 
@@ -619,6 +623,9 @@ class SeasonalTrig(STSComponent):
         cov_constrainer: tfb.Bijector=None
     ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
+        self.drift_cov_pri = drift_cov_prior
+        self.initial_state_pri = initial_state_prior
+        self.cov_constrain = RealToPSDBijector() if cov_constrainer is None else cov_constrainer
 
         self.num_seasons = num_seasons
         self.steps_per_season = num_steps_per_season
@@ -627,7 +634,7 @@ class SeasonalTrig(STSComponent):
         self.initial_distribution = MVN(jnp.zeros(_c*dim_obs), jnp.eye(_c*dim_obs))
 
         self.param_props['drift_cov'] = ParameterProperties(trainable=True,
-                                                            constrainer=RealToPSDBijector())
+                                                            constrainer=self.cov_constrain)
         self.param_priors['drift_cov'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['drift_cov'] = self.param_priors['drift_cov'].mode()
 
@@ -741,6 +748,11 @@ class Cycle(STSComponent):
         cov_constrainer: tfb.Bijector=None
     ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
+        self.damp_pri = damping_factor_prior
+        self.frequency_pri = frequency_prior
+        self.drift_cov_pri = drift_cov_prior
+        self.initial_effect_pri = initial_effect_prior
+        self.cov_constrain = RealToPSDBijector() if cov_constrainer is None else cov_constrainer
 
         self.initial_distribution = MVN(jnp.zeros(2*dim_obs), jnp.eye(2*dim_obs))
 
@@ -754,7 +766,8 @@ class Cycle(STSComponent):
         self.param_priors['frequency'] = Uniform(low=0., high=2*jnp.pi)
         self.params['frequency'] = self.param_priors['frequency'].mode()
 
-        self.param_props['drift_cov'] = ParameterProperties(trainable=True, constrainer=RealToPSDBijector())
+        self.param_props['drift_cov'] = ParameterProperties(trainable=True,
+                                                            constrainer=self.cov_constrain)
         self.param_priors['drift_cov'] = IW(df=dim_obs, scale=jnp.eye(dim_obs))
         self.params['drift_cov'] = self.param_priors['drift_cov'].mode()
 
@@ -831,15 +844,17 @@ class LinearRegression(STSRegression):
         weights_prior: tfd.Distribution=None
     ) -> None:
         super().__init__(name=name, dim_obs=dim_obs)
+        self.weights_pri = weights_prior
         self.add_bias = add_bias
 
         dim_inputs = dim_covariates + 1 if add_bias else dim_covariates
 
         self.param_props['weights'] = ParameterProperties(trainable=True,
                                                           constrainer=tfb.Identity())
-        self.param_priors['weights'] = MNP(loc=jnp.zeros((dim_obs, dim_inputs)),
-                                           row_covariance=jnp.eye(dim_obs),
-                                           col_precision=jnp.eye(dim_inputs))
+        if self.weights_pri is None:
+            self.param_priors['weights'] = MNP(loc=jnp.zeros((dim_obs, dim_inputs)),
+                                               row_covariance=jnp.eye(dim_obs),
+                                               col_precision=jnp.eye(dim_inputs))
         self.params['weights'] = jnp.zeros((dim_obs, dim_inputs))
 
     def initialize_params(

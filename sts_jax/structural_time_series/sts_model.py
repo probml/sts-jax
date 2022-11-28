@@ -117,6 +117,7 @@ class StructuralTimeSeries():
         regression = None
         for c in components:
             if isinstance(c, STSRegression):
+                assert len(components) > 1, "The STS model cannot only contain one regresion component!"
                 regression = c
                 regression.initialize_params(covariates, obs_centered_unconstrained)
                 residuals = obs_centered_unconstrained\
