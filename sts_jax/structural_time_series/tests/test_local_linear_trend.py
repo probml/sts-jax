@@ -75,7 +75,7 @@ def _build_models(time_steps, key):
             vi_dists)
 
 
-def test_local_linear_trend_forecast(time_steps=150, key=jr.PRNGKey(3)):
+def test_local_linear_trend(time_steps=150, key=jr.PRNGKey(3)):
 
     tfp_model, tfp_params, dynamax_model, dynamax_params, obs_time_series, vi_dists =\
         _build_models(time_steps, key)
