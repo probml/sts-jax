@@ -3,46 +3,68 @@ from dynamax.types import PRNGKey, Scalar
 import jax.numpy as jnp
 import jax.random as jr
 from jax import vmap, jit
-from jax.tree_util import tree_map, tree_flatten
+from jax.tree_util import tree_map, tree_leaves
 from dynamax.utils.distributions import InverseWishart as IW
 from dynamax.parameters import ParameterProperties
-from sts_ssm import StructuralTimeSeriesSSM
-from sts_components import *
+from .sts_ssm import StructuralTimeSeriesSSM
+from .sts_components import *
 from dynamax.utils.bijectors import RealToPSDBijector
-from typing import List, Union, Optional, Tuple, Dict
+from typing import List, Union, Optional, Tuple, OrderedDict
 import optax
 from .learning import fit_hmc, fit_vi
 from tensorflow_probability.substrates.jax import distributions as tfd
 import tensorflow_probability.substrates.jax.bijectors as tfb
 
 
-class ParamsSTS(OrderedDict):
-    """A :class: 'OrderdedDict' with each item being an instance of :class: 'OrderedDict'."""
-    pass
-
-
-class ParamPropertiesSTS(OrderedDict):
-    """A :class: 'OrderdedDict' with each item being an instance of :class: 'OrderedDict',
-        having the same pytree structure with 'ParamsSTS'.
-    """
-    pass
-
-
 class StructuralTimeSeries():
-    r"""The class of the Bayesian structural time series (STS) model:
+    r"""The class of the Bayesian structural time series (STS) model.
 
-    $$y_t = H_t z_t + \epsilon_t, \qquad  \epsilon_t \sim \mathcal{N}(0, \Sigma_t)$$
+    The STS model is a linear state space model with a specific structure. In particular,
+    the latent state $z_t$ is a composition of states of all latent components:
+
+    $$z_t = [c_{1, t}, c_{2, t}, ...]$$
+
+    where $c_{i,t}$ is the state of latent component $c_i$ at time step $t$.
+
+    The STS model takes the form:
+
+    $$y_t = H_t z_t + u_t \epsilon_t, \qquad  \epsilon_t \sim \mathcal{N}(0, \Sigma_t)$$
     $$z_{t+1} = F_t z_t + R_t \eta_t, \qquad eta_t \sim \mathcal{N}(0, Q_t)$$
 
     where
 
-    * $H_t$: emission matrix
+    * $H_t$: emission matrix, which sums up the contributions of all latent components.
+    * $u_t$: is the contribution of the regression component.
     * $F_t$: transition matrix of the latent dynamics
     * $R_t$: the selection matrix, which is a subset of clumns of base vector $I$, converting
         the nonsingular covariance matrix into a (possibly singluar) covariance matrix for
-        the latent state $Z_t$.
+        the latent state $z_t$.
     * $Q_t$: nonsingular covariance matrix of the latent state, so the dimension of $Q_t$
-        can be smaller than the dimension of $Z_t$.
+        can be smaller than the dimension of $z_t$.
+
+    The covariance matrix of the latent dynamics model takes the form $R Q R^T$, where $Q$ is
+    a nonsingular matrix (blockwise diagonal), and $R$ is the selecting matrix. For example,
+    for an STS model for a 1-d time series with a local linear component and a (dummy) seasonal
+    component with 4 seasons, $R$ and $Q$ takes the form
+    $$
+    Q = \begin{bmatrix}
+         v_1 &  0  &  0 \\
+          0  & v_2 &  0 \\
+          0  &  0  & v_3
+        \end{bmatrix},
+    \qquad
+    R = \begin{bmatrix}
+         1 & 0 & 0 \\
+         0 & 1 & 0 \\
+         0 & 0 & 1 \\
+         0 & 0 & 0 \\
+         0 & 0 & 0
+        \end{bmatrix}
+    $$
+
+    where $v_1$, $v_2$ are variances of the 'level' part and the 'trend' part of the
+    local linear component, and $v_3$ is the variance of the disturbance of the seasonal
+    component.
     """
 
     def __init__(
@@ -169,10 +191,10 @@ class StructuralTimeSeries():
         covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
         key: PRNGKey=jr.PRNGKey(0),
     ) -> Float[Array, "num_timesteps dim_obs"]:
-        """Given parameters, sample latent states and corresponding observed time series.
+        """Sample observed time series given model parameters.
         """
         sts_ssm = self.as_ssm()
-        states, timeseries = sts_ssm.sample(sts_params, num_timesteps, covariates, key)
+        timeseries = sts_ssm.sample(sts_params, num_timesteps, covariates, key)
 
         return self._uncenter_obs(timeseries)
 
@@ -182,10 +204,34 @@ class StructuralTimeSeries():
         obs_time_series: Float[Array, "num_timesteps dim_obs"],
         covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None
     ) -> Scalar:
+        """Compute marginal log likelihood of the observed time series given model parameters.
+        """
         obs_centered = self._center_obs(obs_time_series)
         sts_ssm = self.as_ssm()
 
         return sts_ssm.marginal_log_prob(sts_params, obs_centered, covariates)
+
+    def posterior_sample(
+        self,
+        sts_params: ParamsSTS,
+        obs_time_series: Float[Array, "num_timesteps dim_obs"],
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
+        key: PRNGKey=jr.PRNGKey(0)
+    ) -> Float[Array, "num_timesteps dim_obs"]:
+        """Sample latent states from their posterior given model parameters.
+        """
+        sts_params = self._ensure_param_has_batch_dim(sts_params)
+        obs_centered = self._center_obs(obs_time_series)
+        sts_ssm = self.as_ssm()
+
+        @jit
+        def single_sample(sts_param):
+            time_series = sts_ssm.posterior_sample(sts_param, obs_centered, covariates, key)
+            return self._uncenter_obs(time_series)
+
+        samples = vmap(single_sample)(sts_params)
+
+        return samples
 
     def fit_mle(
         self,
@@ -265,26 +311,6 @@ class StructuralTimeSeries():
 
         return param_samps, param_log_probs
 
-    def posterior_sample(
-        self,
-        sts_params: ParamsSTS,
-        obs_time_series: Float[Array, "num_timesteps dim_obs"],
-        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
-        key: PRNGKey=jr.PRNGKey(0)
-    ) -> Dict[Float[Array, "num_timesteps dim_obs"], Float[Array, "num_timesteps dim_obs"]]:
-        """Sample latent states from the posterior given model parameters."""
-        sts_params = self._ensure_param_has_batch_dim(sts_params)
-        obs_centered = self._center_obs(obs_time_series)
-        sts_ssm = self.as_ssm()
-        @jit
-        def single_sample(sts_param):
-            ts_means, ts = sts_ssm.posterior_sample(sts_param, obs_centered, covariates, key)
-            return [self._uncenter_obs(ts_means), self._uncenter_obs(ts)]
-
-        samples = vmap(single_sample)(sts_params)
-
-        return {'means': samples[0], 'observations': samples[1]}
-
     def decompose_by_component(
         self,
         sts_params: ParamsSTS,
@@ -293,7 +319,7 @@ class StructuralTimeSeries():
         num_pos_samples: int=100,
         key: PRNGKey=jr.PRNGKey(0)
     ) -> OrderedDict:
-        """Decompose the STS model into components and return the means and variances
+        r"""Decompose the STS model into components and return the means and variances
            of the marginal posterior of each component.
 
            The marginal posterior of each component is obtained by averaging over
@@ -302,23 +328,15 @@ class StructuralTimeSeries():
            conditioned on observed_time_series.
 
            The marginal posterior mean and variance is computed using the formula
-           E[X] = E[E[X|Y]],
-           Var(Y) = E[Var(X|Y)] + Var[E[X|Y]],
+           $$E[X] = E[E[X|Y]]$$,
+           $$Var(Y) = E[Var(X|Y)] + Var[E[X|Y]]$$
            which holds for any random variables X and Y.
-
-        Args:
-            observed_time_series (_type_): _description_
-            inputs (_type_, optional): _description_. Defaults to None.
-            sts_params (_type_, optional): Posteriror samples of STS parameters.
-                If not given, 'num_posterior_samples' of STS parameters will be
-                sampled using self.fit_hmc.
-            num_post_samples (int, optional): Number of posterior samples of STS
-                parameters to be sampled using self.fit_hmc if sts_params=None.
 
         Returns:
             component_dists: (OrderedDict) each item is a tuple of means and variances
                               of one component.
         """
+
         # Sample parameters from the posterior if parameters is not given
         if sts_params is None:
             sts_params = self.fit_hmc(num_pos_samples, obs_time_series, covariates, key=key)
@@ -352,26 +370,26 @@ class StructuralTimeSeries():
         sts_params: ParamsSTS,
         obs_time_series: Float[Array, "num_timesteps dim_obs"],
         num_forecast_steps: int,
+        num_forecast_samples: int=100,
         past_covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
         forecast_covariates: Optional[Float[Array, "num_forecast_steps dim_covariates"]]=None,
         key: PRNGKey=jr.PRNGKey(0)
-    ) -> Dict:
+    ) -> Float[Array, "num_forecast_samples num_forecast_steps dim_obs"]:
         """Forecast.
         """
         sts_params = self._ensure_param_has_batch_dim(sts_params)
         obs_centered = self._center_obs(obs_time_series)
+        sts_ssm = self.as_ssm()
 
         @jit
         def single_forecast(sts_param):
-            sts_ssm = self.as_ssm()
-            means, covs, ts = sts_ssm.forecast(
-                sts_param, obs_centered, num_forecast_steps,
+            forecast = sts_ssm.forecast(
+                sts_param, obs_centered, num_forecast_steps, num_forecast_samples,
                 past_covariates, forecast_covariates, key)
-            return [self._uncenter_obs(means), covs, self._uncenter_obs(ts)]
+            return vmap(self._uncenter_obs)(forecast)
 
         forecasts = vmap(single_forecast)(sts_params)
-
-        return {'means': forecasts[0], 'covariances': forecasts[1], 'observations': forecasts[2]}
+        return forecasts
 
     def _ensure_param_has_batch_dim(self, sts_params):
         """Turn parameters into batch if only one parameter is given"""
@@ -379,7 +397,7 @@ class StructuralTimeSeries():
         # and the linear regression has coefficient matrix.
         # When the observation is Gaussian, the observation model also has a covariance matrix.
         # So here we assume that the largest dimension of parameters is 2.
-        param_list, _ = tree_flatten(sts_params)
+        param_list = tree_leaves(sts_params)
         max_params_dim = max([len(x.shape) for x in param_list])
         if max_params_dim > 2:
             return sts_params

@@ -6,14 +6,14 @@ from jax import jit, lax, vmap, value_and_grad
 import jax.numpy as jnp
 import jax.random as jr
 from jaxtyping import Float, Array
-from jax.tree_util import tree_map, tree_flatten, tree_leaves
+from jax.tree_util import tree_map, tree_leaves
 import jax.scipy.stats.norm as norm
 import optax
 from dynamax.parameters import to_unconstrained, from_unconstrained, log_det_jac_constrain
 from dynamax.types import PRNGKey, Scalar
 from dynamax.utils.utils import ensure_array_has_batch_dim, pytree_slice, pytree_stack
-from sts_ssm import StructuralTimeSeriesSSM
-from sts_model import ParamsSTS, ParamPropertiesSTS
+from .sts_ssm import StructuralTimeSeriesSSM
+from .sts_components import ParamsSTS, ParamPropertiesSTS
 from typing import Optional, Tuple
 
 

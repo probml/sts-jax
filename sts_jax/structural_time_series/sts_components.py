@@ -20,6 +20,24 @@ class ParamsSTSComponent(OrderedDict):
     pass
 
 
+class ParamsSTS(OrderedDict):
+    """A :class: 'OrderdedDict' with each item being an instance of :class: 'OrderedDict'."""
+    pass
+
+
+class ParamPropertiesSTS(OrderedDict):
+    """A :class: 'OrderdedDict' with each item being an instance of :class: 'OrderedDict',
+        having the same pytree structure with 'ParamsSTS'.
+    """
+    pass
+
+
+class ParamPriorsSTS(OrderedDict):
+    """A :class: 'OrderdedDict' with each item being an instance of :class: 'OrderedDict',
+        having the same pytree structure with 'ParamsSTS'.
+    """
+    pass
+
 #########################
 #  Abstract Components  #
 #########################
@@ -136,7 +154,7 @@ class STSComponent(ABC):
 
     @property
     @abstractmethod
-    def cov_select_mat(self) -> Float[Array, "dim_state, rank_state"]:
+    def cov_select_mat(self) -> Float[Array, "dim_state rank_state"]:
         r"""Returns the selecting matrix $R$ that expands the nonsingular covariance matrix
             $Q[t]$ in each time step into a (possibly singular) convarince matrix of shape
             (dim_state, dim_state).
@@ -171,6 +189,9 @@ class STSRegression(ABC):
         param_props has the same pytree structure with 'params', and each leaf is an instance
         of dynamax.parameters.ParameterProperties, which specifies constrainer of
         each parameter and whether that parameter is trainable.
+    * :attr: 'param_priors' returns prior distribution of each item in 'params'.
+        param_priors has the same pytree structure with 'params', and each leaf is an instance
+        of tfd.Distribution.
     """
 
     def __init__(
@@ -183,6 +204,7 @@ class STSRegression(ABC):
 
         self.params = OrderedDict()
         self.param_props = OrderedDict()
+        self.param_priors = OrderedDict()
 
     @abstractmethod
     def initialize_params(
@@ -324,20 +346,20 @@ class Autoregressive(STSComponent):
     r"""The autoregressive (AR) latent component of the structural time series (STS) model.
 
     The autoregressive model of order $p$, i.e., AR(p) is defined as
-    
+
     $$z_t = \sum_{j=1}^{p} w_j z_{t-j} + \epsilon_t$$
-    
-    where 
-    
+
+    where
+
     * $w_j$'s are coefficients of the autoregression. It is required that $|w_j| < 1 $
         to make sure that the autoregressive model is stationary.
     * $\epsilon_t$ is the disturbance that follows a Gaussian distribution with mean 0
         and covariance $cov_level$.
-    
+
     There are multiple ways to formulate the AR(p) component in the STS model. We set the
     state vector of the component to be the history of the latent state, with the dimension
     $p*dim_obs$.
-    
+
     If $dim_obs=1$ and assume $p=3$, the transition matrix and the observation matrix is
     $$
     F = \begin{bmatrix}
@@ -543,7 +565,7 @@ class SeasonalDummy(STSComponent):
         return self._cov_select_mat
 
 
-class SeasonalTrig(STSComponent):0
+class SeasonalTrig(STSComponent):
     r"""The trigonometric seasonal component of the structual time series (STS) model.
 
     The seasonal effect (random) of next time step takes the form:
@@ -783,7 +805,6 @@ class Cycle(STSComponent):
     @property
     def cov_select_mat(self) -> Float[Array, "2*dim_obs dim_obs"]:
         return self._cov_select_mat
-
 
 
 class LinearRegression(STSRegression):
