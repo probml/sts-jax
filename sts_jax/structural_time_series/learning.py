@@ -10,8 +10,8 @@ from jax.tree_util import tree_map, tree_leaves
 import jax.scipy.stats.norm as norm
 import optax
 from dynamax.parameters import to_unconstrained, from_unconstrained, log_det_jac_constrain
-from dynamax.types import PRNGKey, Scalar
-from dynamax.utils.utils import ensure_array_has_batch_dim, pytree_slice, pytree_stack
+from dynamax.types import PRNGKey
+from dynamax.utils.utils import ensure_array_has_batch_dim, pytree_stack
 from .sts_ssm import StructuralTimeSeriesSSM
 from .sts_components import ParamsSTS, ParamPropertiesSTS
 from typing import Optional, Tuple
@@ -27,8 +27,7 @@ def fit_vi(
     optimizer: optax.GradientTransformation=optax.adam(1e-1),
     K: int=1,
     key: PRNGKey=jr.PRNGKey(0),
-    num_step_iters: int=50,
-    verbose: bool=True
+    num_step_iters: int=50
 ) -> Tuple[ParamsSTS, Float[Array, "num_samples"]]:
     """
     ADVI approximate the posterior distribtuion p of unconstrained global parameters

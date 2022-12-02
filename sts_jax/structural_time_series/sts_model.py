@@ -172,17 +172,11 @@ class StructuralTimeSeries():
     def as_ssm(self) -> StructuralTimeSeriesSSM:
         """Convert the STS model as a state space model.
         """
-        sts_ssm = StructuralTimeSeriesSSM(self.params,
-                                          self.param_props,
-                                          self.param_priors,
-                                          self.trans_mat_getters,
-                                          self.trans_cov_getters,
-                                          self.obs_mats,
-                                          self.cov_select_mats,
-                                          self.initial_distributions,
-                                          self.reg_func,
-                                          self.obs_distribution,
-                                          self.dim_covariate)
+        sts_ssm = StructuralTimeSeriesSSM(
+            self.params, self.param_props, self.param_priors,
+            self.trans_mat_getters, self.trans_cov_getters, self.obs_mats, self.cov_select_mats,
+            self.initial_distributions, self.reg_func, self.obs_distribution, self.dim_covariate
+            )
         return sts_ssm
 
     def sample(
@@ -195,7 +189,7 @@ class StructuralTimeSeries():
         """Sample observed time series given model parameters.
         """
         sts_ssm = self.as_ssm()
-        timeseries = sts_ssm.sample(sts_params, num_timesteps, covariates, key)
+        _, timeseries = sts_ssm.sample(sts_params, num_timesteps, covariates, key)
 
         return self._uncenter_obs(timeseries)
 
@@ -266,7 +260,6 @@ class StructuralTimeSeries():
         initial_params: ParamsSTS=None,
         param_props: ParamPropertiesSTS=None,
         num_step_iters: int=50,
-        verbose: bool=True,
         key: PRNGKey=jr.PRNGKey(0)
     ) -> Tuple[ParamsSTS[Array], Float[Array, "num_samples"]]:
         """Sample parameters of the STS model from ADVI posterior.
@@ -280,7 +273,8 @@ class StructuralTimeSeries():
         obs_centered = self._center_obs(obs_time_series)
         param_samps, losses = fit_vi(
             sts_ssm, initial_params, param_props, num_samples, obs_centered, covariates,
-            key, verbose, num_step_iters, verbose)
+            key, num_step_iters
+            )
         elbo = -losses
 
         return param_samps, elbo
@@ -308,8 +302,8 @@ class StructuralTimeSeries():
         obs_centered = self._center_obs(obs_time_series)
         param_samps, param_log_probs = fit_hmc(
             sts_ssm, initial_params, param_props, num_samples, obs_centered, covariates,
-            key, warmup_steps, verbose)
-
+            key, warmup_steps, verbose
+            )
         return param_samps, param_log_probs
 
     def decompose_by_component(
