@@ -10,38 +10,41 @@ import sts_jax.structural_time_series.sts_model as sts
 
 
 class CausalImpact():
-    """A wrapper of help functions of the causal impact
+    """A wrapper class of helper functions of the causal impact
     """
-    def __init__(self,
-                 sts_model,
-                 intervention_time,
-                 predict,
-                 causal_impact,
-                 summary,
-                 observed_timeseries):
+    def __init__(
+        self,
+        sts_model: sts.StructuralTimeSeries,
+        intervention_time: int,
+        predict: dict,
+        effect: dict,
+        summary: dict,
+        obs_time_series: Float[Array, "num_timesteps dim_obs"]
+    ) -> None:
         """
         Args:
-            sts_model    : an object of the StructualTimeSeries class
-            causal_impact: a dict returned by the function 'causal impact'
+            sts_model: an instance of the StructualTimeSeries.
+            intervention_time: time point of the intervention.
+            effect: a dictionary containing pointwise effect and cumulative effect returned by
+            the function 'causal_impact'
         """
         self.intervention_time = intervention_time
         self.sts_model = sts_model
         self.predict_point = predict['pointwise']
         self.predict_interval = predict['interval']
-        self.impact_point = causal_impact['pointwise']
-        self.impact_cumulat = causal_impact['cumulative']
+        self.impact_point = effect['pointwise']
+        self.impact_cumulat = effect['cumulative']
         self.summary = summary
-        self.timeseries = observed_timeseries
+        self.times_eries = obs_time_series
 
-    def plot(self):
-        """Plot the causal impact
-        """
-        x = jnp.arange(self.timeseries.shape[0])
+    def plot(self) -> None:
+        """Plot the effect."""
+        x = jnp.arange(self.time_series.shape[0])
         fig, (ax1, ax2, ax3) = plt.subplots(
             3, 1, figsize=(9, 6), sharex=True, layout='constrained')
 
         # Plot the original obvervation and the counterfactual predict
-        ax1.plot(x, self.timeseries, color='black', lw=2, label='Observation')
+        ax1.plot(x, self.time_series, color='black', lw=2, label='Observation')
         ax1.plot(x, self.predict_point, linestyle='dashed', color='blue', lw=2, label='Prediction')
         ax1.fill_between(x, self.predict_interval[0], self.predict_interval[1],
                          color='blue', alpha=0.2)
@@ -64,10 +67,11 @@ class CausalImpact():
 
         plt.show()
 
-    def print_summary(self):
+    def print_summary(self) -> None:
+        """Print the summary of the inferred effect as a table."""
         # Number of columns for each column of the table to be printed
         ncol1, ncol2, ncol3 = 22, 15, 15
-        ci_level = str(95)
+        ci_level = str(self.summary['confidence_level'])
 
         # Summary statistics of the post-intervention observation
         actual = self.summary('actual')
@@ -140,7 +144,6 @@ class CausalImpact():
             f"Posterior tail-area probability p: \n"
             f"Posterior prob of a causal effect: \n"
             )
-
         print(summary_stats)
 
 
@@ -154,19 +157,31 @@ def causal_impact(
     key: PRNGKey=jr.PRNGKey(0),
     num_samples: int=200
 ) -> CausalImpact:
-    """Inferring the causal impact of an intervention on a time series,
-    given the observed timeseries before and after the intervention.
+    r"""Inferring the causal impact of an intervention on a time series via the structural
+        time series (STS) model.
 
-    The causal effect is obtained by conditioned on, and only on, the observations,
-    with parameters and latent states integrated out.
-
+    Args:
+        obs_time_series: observed time series.
+        intervention_time_point: the time point when the intervention took place.
+        obs_distribution: distribution family of the observation, can be either 'Gaussian' or
+            'Poisson'
+        covariates: covariates of the regression component of the STS model.
+        sts_model: an instance of StructuralTimeSeries, if not given, an STS model with a local
+            linear latent component is used by default. If covariates is not None, a linear
+            regression term will also be added to the default STS model.
+        confidence_level: confidence level of the prediction interval.
+        num_samples: number of samples used to estimate the prediction mean and prediction
+            interval.
+        
     Returns:
-        An object of the CausalImpact class
+        An instance of CausalImpact.
     """
+
     assert obs_distribution in ['Gaussian', 'Poisson']
     if sts_model is not None:
         assert obs_distribution == sts_model.obs_distribution
 
+    prob_lower, prob_upper = 0.5 - confidence_level/2., 0.5 + confidence_level/2.
     key1, key2, key3 = jr.split(key, 3)
     num_timesteps, dim_obs = obs_time_series.shape
 
@@ -176,61 +191,46 @@ def causal_impact(
 
     if covariates is not None:
         dim_covariates = covariates.shape[-1]
-        # The number of time steps of input must equal to that of observed time_series.
         covariates_pre = covariates[:intervention_timepoint]
         covariates_pos = covariates[intervention_timepoint:]
+    else:
+        covariates_pre = covariates_pos = None
 
-    # Construct a STS model with only local linear trend by default
+    # Construct the default STS model with only one local linear trend latent component.
     if sts_model is None:
         local_linear_trend = sts.LocalLinearTrend()
-        if covariates is None:
-            sts_model = sts.StructuralTimeSeries(components=[local_linear_trend],
-                                                 obs_time_series=obs_time_series,
-                                                 obs_distribution=obs_distribution)
-        else:
+        components = [local_linear_trend]
+        # Add one linear regression component if covariates is not None.
+        if covariates is not None:
             linear_regression = sts.LinearRegression(dim_covariates=dim_covariates)
-            sts_model = sts.StructuralTimeSeries(components=[local_linear_trend, linear_regression],
-                                                 obs_time_series=obs_time_series,
-                                                 obs_distribution=obs_distribution,
-                                                 covariates=covariates)
+            components.append(linear_regression)
+        sts_model = sts.StructuralTimeSeries(
+            components, obs_time_series, covariates, obs_distribution)
 
     # Fit the STS model, sample from the past and forecast.
-    if covariates is not None:
-        # Model fitting
-        params_posterior_samples, _ = sts_model.fit_hmc(num_samples, time_series_pre,
-                                                        covariates=covariates_pre, key=key1)
-        # Sample from the past and forecast
-        samples_pre = sts_model.posterior_sample(
-            params_posterior_samples, time_series_pre, covariates_pre, key=key2)
-        samples_pos = sts_model.forecast(
-            params_posterior_samples, time_series_pre, time_series_pos.shape[0],
-            covariates_pre, covariates_pos, key3)
-    else:
-        # Model fitting
-        params_posterior_samples, _ = sts_model.fit_hmc(num_samples, time_series_pre, key=key1)
-        # Sample from the past and forecast
-        samples_pre = sts_model.posterior_sample(params_posterior_samples, time_series_pre, key=key2)
-        samples_pos = sts_model.forecast(
-            params_posterior_samples, time_series_pre, time_series_pos.shape[0], key=key3)
+    # Model fitting
+    params_posterior_samples, _ = sts_model.fit_hmc(
+        num_samples, time_series_pre, covariates=covariates_pre, key=key1)
+    # Sample observations from the posterior predictive sample given paramters of the STS model.
+    posterior_samples = sts_model.posterior_sample(
+        params_posterior_samples, time_series_pre, covariates_pre, key=key2)
+    # Forecast by sampling observations from the predictive distribution in the future.
+    forecast_samples = sts_model.forecast(
+        params_posterior_samples, time_series_pre, time_series_pos.shape[0],
+        covariates_pre, covariates_pos, key3)
 
-    # forecast_means = jnp.concatenate((samples_pre['means'], samples_pos['means']), axis=1).squeeze()
-    forecast_observations = jnp.concatenate(
-        (samples_pre['observations'], samples_pos['observations']), axis=1).squeeze()
+    predict_observations = jnp.concatenate(
+        (posterior_samples, forecast_samples), axis=1).squeeze()
 
     confidence_bounds = jnp.quantile(
-        forecast_observations,
-        jnp.array([0.5 - confidence_level/2., 0.5 + confidence_level/2.]),
-        axis=0)
-    predict_point = forecast_observations.mean(axis=0)
+        predict_observations, jnp.array([prob_lower, prob_upper]), axis=0)
+    predict_point = predict_observations.mean(axis=0)
     predict_interval_upper = confidence_bounds[0]
     predict_interval_lower = confidence_bounds[1]
 
     cum_predict_point = jnp.cumsum(predict_point)
     cum_confidence_bounds = jnp.quantile(
-        forecast_observations.cumsum(axis=1),
-        jnp.array([0.5-confidence_level/2., 0.5+confidence_level/2.]),
-        axis=0
-        )
+        predict_observations.cumsum(axis=1), jnp.array([prob_lower, prob_upper]), axis=0)
     cum_predict_interval_upper = cum_confidence_bounds[0]
     cum_predict_interval_lower = cum_confidence_bounds[1]
 
@@ -251,6 +251,7 @@ def causal_impact(
                'interval': confidence_bounds}
 
     summary = dict()
+    summary['confidence_level'] = confidence_level
     Stats = namedtuple("Stats", ["average", "cumulative"])
 
     # Summary statistics of the post-intervention observation
@@ -258,34 +259,36 @@ def causal_impact(
                               cumulative=time_series_pos.sum())
 
     # Summary statistics of the post-intervention prediction
-    summary['pred'] = Stats(average=predict_point[intervention_timepoint:].mean(),
-                            cumulative=predict_point[intervention_timepoint:].sum())
-    summary['pred_lower'] = Stats(average=None,
-                                  cumulative=None)
-    summary['pred_upper'] = Stats(average=None,
-                                  cumulative=None)
-    summary['pred_sd'] = Stats(average=None,
-                               cumulative=None)
+    summary['pred'] = Stats(average=forecast_samples.mean(axis=0).mean(),
+                            cumulative=forecast_samples.mean(axis=0).sum())
+    summary['pred_lower'] = Stats(average=jnp.quantile(forecast_samples.mean(axis=1), prob_lower),
+                                  cumulative=jnp.quantile(forecast_samples.sum(axis=1), prob_lower))
+    summary['pred_upper'] = Stats(average=jnp.quantile(forecast_samples.mean(axis=1), prob_upper),
+                                  cumulative=jnp.quantile(forecast_samples.sum(axis=1), prob_upper))
+    summary['pred_sd'] = Stats(average=jnp.std(forecast_samples.mean(axis=1)),
+                               cumulative=jnp.std(forecast_samples.sum(axis=1)))
 
     # Summary statistics of the absolute post-invervention effect
-    summary['abs_effect'] = Stats(average=None,
-                                  cumulative=None)
-    summary['abs_effect_lower'] = Stats(average=None,
-                                        cumulative=None)
-    summary['abs_effect_upper'] = Stats(average=None,
-                                        cumulative=None)
-    summary['abs_effect_sd'] = Stats(average=None,
-                                     cumulative=None)
+    effects = time_series_pos - forecast_samples
+    summary['abs_effect'] = Stats(average=effects.mean(axis=0).mean(),
+                                  cumulative=effects.mean(axis=0).sum())
+    summary['abs_effect_lower'] = Stats(average=jnp.quantile(effects.mean(axis=1), prob_lower),
+                                        cumulative=jnp.quantile(effects.sum(axis=1), prob_lower))
+    summary['abs_effect_upper'] = Stats(average=jnp.quantile(effects.mean(axis=1), prob_upper),
+                                        cumulative=jnp.quantile(effects.sum(axis=1), prob_upper))
+    summary['abs_effect_sd'] = Stats(average=jnp.std(effects.mean(axis=1)),
+                                     cumulative=jnp.std(effects.sum(axis=1)))
 
     # Summary statistics of the relative post-intervention effect
-    summary['rel_effect'] = Stats(average=None,
-                                  cumulative=None)
-    summary['rel_effect_lower'] = Stats(average=None,
-                                        cumulative=None)
-    summary['rel_effect_upper'] = Stats(average=None,
-                                        cumulative=None)
-    summary['rel_effect_sd'] = Stats(average=None,
-                                     cumulative=None)
+    rel_effects_sum =  effects.sum(axis=1) / forecast_samples.sum(axis=1)
+    summary['rel_effect'] = Stats(average=rel_effects_sum.mean(),
+                                  cumulative=rel_effects_sum.mean())
+    summary['rel_effect_lower'] = Stats(average=jnp.quantile(rel_effects_sum, prob_lower),
+                                        cumulative=jnp.quantile(rel_effects_sum, prob_lower))
+    summary['rel_effect_upper'] = Stats(average=jnp.quantile(rel_effects_sum, prob_upper),
+                                        cumulative=jnp.quantile(rel_effects_sum, prob_upper))
+    summary['rel_effect_sd'] = Stats(average=jnp.std(rel_effects_sum),
+                                     cumulative=jnp.std(rel_effects_sum))
 
     return CausalImpact(
         sts_model, intervention_timepoint, predict, impact, summary, obs_time_series)
