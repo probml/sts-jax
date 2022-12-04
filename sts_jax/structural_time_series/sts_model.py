@@ -221,7 +221,7 @@ class StructuralTimeSeries():
 
         @jit
         def single_sample(sts_param):
-            time_series = sts_ssm.posterior_sample(sts_param, obs_centered, covariates, key)
+            time_series = sts_ssm.posterior_sample(sts_param, obs_centered, covariates, key)[1]
             return self._uncenter_obs(time_series)
 
         samples = vmap(single_sample)(sts_params)

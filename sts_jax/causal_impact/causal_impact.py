@@ -35,7 +35,7 @@ class CausalImpact():
         self.impact_point = effect['pointwise']
         self.impact_cumulat = effect['cumulative']
         self.summary = summary
-        self.times_eries = obs_time_series
+        self.time_series = obs_time_series
 
     def plot(self) -> None:
         """Plot the effect."""
@@ -70,15 +70,15 @@ class CausalImpact():
     def print_summary(self) -> None:
         """Print the summary of the inferred effect as a table."""
         # Number of columns for each column of the table to be printed
-        ncol1, ncol2, ncol3 = 22, 15, 15
-        ci_level = str(self.summary['confidence_level'])
+        ncol1, ncol2, ncol3 = 25, 20, 20
+        ci_level = self.summary['confidence_level']
 
         # Summary statistics of the post-intervention observation
-        actual = self.summary('actual')
+        actual = self.summary['actual']
         f_actual = (
             f"{'Actual': <{ncol1}}"
-            f"{actual.average: <{ncol2}}"
-            f"{actual.cumulative: <{ncol3}}\n"
+            f"{actual.average: ^{ncol2}.2f}"
+            f"{actual.cumulative: ^{ncol3}.2f}\n"
         )
 
         # Summary statistics of the post-intervention prediction
@@ -88,13 +88,13 @@ class CausalImpact():
         pred_r = self.summary['pred_upper']
         f_pred = (
             f"{'Prediction (s.d.)': <{ncol1}}"
-            f"{str(pred.average) + '('+str(pred_sd.averate)+')': <{ncol2}}"
-            f"{str(pred.cumulative) + '('+str(pred_sd.cumulative)+')': <{ncol3}}"
+            f'{f"{pred.average:.2f} ({pred_sd.average:.2f})": ^{ncol2}}'
+            f'{f"{pred.cumulative:.2f} ({pred_sd.cumulative:.2f})": ^{ncol3}}'
         )
         f_pred_ci = (
-            f"{ci_level + '%  CI': <{ncol1}}"
-            f"{'[' + str(pred_l.average) + ',' + str(pred_r.average) + ']': <{ncol2}}"
-            f"{'[' + str(pred_l.cumulative) + ',' + str(pred_r.cumulative) + ']': <{ncol3}}"
+            f'{f"{ci_level:.0%} CI": <{ncol1}}'
+            f'{f"[{pred_l.average:.2f}, {pred_r.average:.2f}]": ^{ncol2}}'
+            f'{f"[{pred_l.cumulative:.2f}, {pred_r.cumulative:.2f}]": ^{ncol3}}'
         )
 
         # Summary statistics of the absolute post-invervention effect
@@ -104,13 +104,13 @@ class CausalImpact():
         abs_r = self.summary['abs_effect_upper']
         f_abs = (
             f"{'Absolute effect (s.d.)': <{ncol1}}"
-            f"{str(abs_e.average) + '('+str(abs_sd.averate)+')': <{ncol2}}"
-            f"{str(abs_e.cumulative) + '('+str(abs_sd.cumulative)+')': <{ncol3}}"
+            f'{f"{abs_e.average:.2f} ({abs_sd.average:.2f})": ^{ncol2}}'
+            f'{f"{abs_e.cumulative:.2f} ({abs_sd.cumulative:.2f})": ^{ncol3}}'
         )
         f_abs_ci = (
-            f"{ci_level+'%  CI': <{ncol1}}"
-            f"{'[' + str(abs_l.average) + ',' + str(abs_r.average) + ']': <{ncol2}}"
-            f"{'[' + str(abs_l.cumulative) + ',' + str(abs_r.cumulative) + ']': <{ncol3}}"
+            f'{f"{ci_level:.0%} CI": <{ncol1}}'
+            f'{f"[{abs_l.average:.2f}, {abs_r.average:.2f}]": ^{ncol2}}'
+            f'{f"[{abs_l.cumulative:.2f}, {abs_r.cumulative:.2f}]": ^{ncol3}}'
         )
 
         # Summary statistics of the relative post-intervention effect
@@ -120,29 +120,29 @@ class CausalImpact():
         rel_r = self.summary['rel_effect_upper']
         f_rel = (
             f"{'Relative effect (s.d.)': <{ncol1}}"
-            f"{str(rel_e.average) + '('+str(rel_sd.averate)+')': <{ncol2}}"
-            f"{str(rel_e.cumulative) + '('+str(rel_sd.cumulative)+')': <{ncol3}}"
+            f'{f"{rel_e.average:.2%} ({rel_sd.average:.2%})": ^{ncol2}}'
+            f'{f"{rel_e.cumulative:.2%} ({rel_sd.cumulative:.2%})": ^{ncol3}}'
         )
         f_rel_ci = (
-            f"{ci_level+'% . CI': <{ncol1}}"
-            f"{'[' + str(rel_l.average) + ',' + str(rel_r.average) + ']': <{ncol2}}"
-            f"{'[' + str(rel_l.cumulative) + ',' + str(rel_r.cumulative) + ']': <{ncol3}}"
+            f'{f"{ci_level:.0%} CI": <{ncol1}}'
+            f'{f"[{rel_l.average:.2%}, {rel_r.average:.2%}]": ^{ncol2}}'
+            f'{f"[{rel_l.cumulative:.2%}, {rel_r.cumulative:.2%}]": ^{ncol3}}'
         )
 
         # Format all statistics
         summary_stats = (
             f"Posterior inference of the causal impact:\n"
             f"\n"
-            f"{'': <{ncol1}} {'Average': <{ncol2}} {'Cumulative': <{ncol3}}\n"
+            f"{'': <{ncol1}}{'Average': ^{ncol2}}{'Cumulative': ^{ncol3}}\n"
             f"{f_actual}\n"
-            f"{f_pred}\n {f_pred_ci}\n"
+            f"{f_pred}\n{f_pred_ci}\n"
             f"\n"
-            f"{f_abs}\n  {f_abs_ci}\n"
+            f"{f_abs}\n{f_abs_ci}\n"
             f"\n"
-            f"{f_rel}\n  {f_rel_ci}\n"
+            f"{f_rel}\n{f_rel_ci}\n"
             f"\n"
-            f"Posterior tail-area probability p: \n"
-            f"Posterior prob of a causal effect: \n"
+            f"Posterior tail-area probability p: {self.summary['tail_prob']:.4f}\n"
+            f"Posterior prob of a causal effect: {1-self.summary['tail_prob']:.2%}\n"
             )
         print(summary_stats)
 
@@ -172,7 +172,7 @@ def causal_impact(
         confidence_level: confidence level of the prediction interval.
         num_samples: number of samples used to estimate the prediction mean and prediction
             interval.
-        
+
     Returns:
         An instance of CausalImpact.
     """
@@ -216,8 +216,8 @@ def causal_impact(
         params_posterior_samples, time_series_pre, covariates_pre, key=key2)
     # Forecast by sampling observations from the predictive distribution in the future.
     forecast_samples = sts_model.forecast(
-        params_posterior_samples, time_series_pre, time_series_pos.shape[0],
-        covariates_pre, covariates_pos, key3)
+        params_posterior_samples, time_series_pre, time_series_pos.shape[0], 100,
+        covariates_pre, covariates_pos, key3).mean(axis=1)
 
     predict_observations = jnp.concatenate(
         (posterior_samples, forecast_samples), axis=1).squeeze()
@@ -280,7 +280,7 @@ def causal_impact(
                                      cumulative=jnp.std(effects.sum(axis=1)))
 
     # Summary statistics of the relative post-intervention effect
-    rel_effects_sum =  effects.sum(axis=1) / forecast_samples.sum(axis=1)
+    rel_effects_sum = effects.sum(axis=1) / forecast_samples.sum(axis=1)
     summary['rel_effect'] = Stats(average=rel_effects_sum.mean(),
                                   cumulative=rel_effects_sum.mean())
     summary['rel_effect_lower'] = Stats(average=jnp.quantile(rel_effects_sum, prob_lower),
@@ -289,6 +289,12 @@ def causal_impact(
                                         cumulative=jnp.quantile(rel_effects_sum, prob_upper))
     summary['rel_effect_sd'] = Stats(average=jnp.std(rel_effects_sum),
                                      cumulative=jnp.std(rel_effects_sum))
+
+    # Add one-sided tail-area probability of overall impact
+    effects_sum = effects.sum(axis=1)
+    p_tail = float(1 + min((effects_sum >= 0).sum(), (effects_sum <= 0).sum()))\
+        / (1+effects_sum.shape[0])
+    summary['tail_prob'] = p_tail
 
     return CausalImpact(
         sts_model, intervention_timepoint, predict, impact, summary, obs_time_series)
