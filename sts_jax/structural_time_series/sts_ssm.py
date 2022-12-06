@@ -28,7 +28,7 @@ from tensorflow_probability.substrates.jax.distributions import (
     MultivariateNormalFullCovariance as MVN,
     Poisson as Pois
     )
-from typing import List, Callable, Optional, Union
+from typing import List, Callable, Optional, Tuple
 
 
 class StructuralTimeSeriesSSM(SSM):
@@ -162,7 +162,7 @@ class StructuralTimeSeriesSSM(SSM):
         initial_timestep: int=0,
         covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
         key: PRNGKey=jr.PRNGKey(0)
-    ) -> Float[Array, "num_timesteps dim_obs"]:
+    ) -> Tuple[Float[Array, "num_timesteps dim_obs"], Float[Array, "num_timesteps dim_obs"]]:
         """Sample a sequence of latent states and emissions with given parameters of the STS.
 
         Args:
@@ -196,9 +196,10 @@ class StructuralTimeSeriesSSM(SSM):
 
         # Sample the following emissions and states.
         keys = jr.split(key2, num_timesteps)
-        _, (states, time_series) = lax.scan(
+        _, (states, sample_obs) = lax.scan(
             _step, initial_state, (keys, inputs, initial_timestep+jnp.arange(num_timesteps)))
-        return states, time_series
+        sample_mean = self._emission_constrainer(states @ self.obs_mat.T + inputs)
+        return sample_mean, sample_obs
 
     def marginal_log_prob(
         self,
@@ -227,7 +228,7 @@ class StructuralTimeSeriesSSM(SSM):
         obs_time_series: Float[Array, "num_timesteps dim_obs"],
         covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
         key: PRNGKey=jr.PRNGKey(0)
-    ) -> Float[Array, "num_timesteps dim_obs"]:
+    ) -> Tuple[Float[Array, "num_timesteps dim_obs"], Float[Array, "num_timesteps dim_obs"]]:
         """Sample latent states from the posterior distribution, as well as the predictive
         observations, given model parameters.
         """
@@ -246,11 +247,13 @@ class StructuralTimeSeriesSSM(SSM):
         states = self._ssm_posterior_sample(ssm_params, obs_time_series, inputs, key1)
 
         # Sample predictive observations conditioned on posterior samples of latent states.
-        keys = jr.split(key2, obs_time_series.shape[0])
         obs_sampler = lambda state, input, key:\
             self.emission_distribution(state, input).sample(seed=key)
-        time_series = vmap(obs_sampler)(states, inputs, keys)
-        return states, time_series
+        keys = jr.split(key2, obs_time_series.shape[0])
+
+        predictive_obs = vmap(obs_sampler)(states, inputs, keys)
+        predictive_mean = self._emission_constrainer(states @ self.obs_mat.T + inputs)
+        return predictive_mean, predictive_obs
 
     def component_posterior(
         self,
@@ -309,7 +312,8 @@ class StructuralTimeSeriesSSM(SSM):
         past_covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
         forecast_covariates: Optional[Float[Array, "num_forecast_steps dim_covariates"]]=None,
         key: PRNGKey=jr.PRNGKey(0)
-    ) -> Float[Array, "num_forecast_samples num_forecast_steps dim_obs"]:
+    ) -> Tuple[Float[Array, "num_forecast_samples num_forecast_steps dim_obs"],
+               Float[Array, "num_forecast_samples num_forecast_steps dim_obs"]]:
         """Forecast the time series.
         """
         if forecast_covariates is not None:
@@ -338,9 +342,14 @@ class StructuralTimeSeriesSSM(SSM):
         initial_states = MVN(initial_state_mean,
                              initial_state_cov).sample(num_forecast_samples, seed=key)
 
+        # Forecast by sample from an STS model conditioned on the parameter and initialized
+        # using the filtered posterior.
         single_forecast = lambda initial_state, key: self.sample(
-            params, num_forecast_steps, initial_state, t0, forecast_covariates, key)[1]
-        return vmap(single_forecast)(initial_states, jr.split(key, num_forecast_samples))
+            params, num_forecast_steps, initial_state, t0, forecast_covariates, key)
+
+        forecast_mean, forecast_obs = vmap(single_forecast)(
+            initial_states, jr.split(key, num_forecast_samples))
+        return forecast_mean, forecast_obs
 
     def one_step_predict(self, params, obs_time_series, covariates=None):
         """One step forward prediction.
@@ -447,7 +456,7 @@ class StructuralTimeSeriesSSM(SSM):
         elif self.obs_distribution == 'Poisson':
             # Currently the posterior_sample for STS model with Poisson likelihood
             # simply returns the filtered means.
-            return self._ssm_filter(ssm_params, obs_time_series, inputs)
+            return self._ssm_filter(ssm_params, obs_time_series, inputs).filtered_means
 
     def _emission_constrainer(self, emission):
         """Transform the state into the possibly constrained space.
