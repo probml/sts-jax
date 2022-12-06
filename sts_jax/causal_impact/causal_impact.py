@@ -212,19 +212,23 @@ def causal_impact(
     params_posterior_samples, _ = sts_model.fit_hmc(
         num_samples, time_series_pre, covariates=covariates_pre, key=key1)
     # Sample observations from the posterior predictive sample given paramters of the STS model.
-    posterior_samples = sts_model.posterior_sample(
+    posterior_sample_means, posterior_samples = sts_model.posterior_sample(
         params_posterior_samples, time_series_pre, covariates_pre, key=key2)
     # Forecast by sampling observations from the predictive distribution in the future.
-    forecast_samples = sts_model.forecast(
+    forecast_means, forecast_samples = sts_model.forecast(
         params_posterior_samples, time_series_pre, time_series_pos.shape[0], 100,
-        covariates_pre, covariates_pos, key3).mean(axis=1)
+        covariates_pre, covariates_pos, key3)
+    forecast_means = forecast_means.mean(axis=1)
+    forecast_samples = forecast_samples.mean(axis=1)
 
+    predict_means = jnp.concatenate(
+        (posterior_sample_means, forecast_means), axis=1).squeeze()
     predict_observations = jnp.concatenate(
         (posterior_samples, forecast_samples), axis=1).squeeze()
 
     confidence_bounds = jnp.quantile(
         predict_observations, jnp.array([prob_lower, prob_upper]), axis=0)
-    predict_point = predict_observations.mean(axis=0)
+    predict_point = predict_means.mean(axis=0)
     predict_interval_upper = confidence_bounds[0]
     predict_interval_lower = confidence_bounds[1]
 
@@ -239,10 +243,10 @@ def causal_impact(
     impact_interval_lower = obs_time_series.squeeze() - predict_interval_upper
     impact_interval_upper = obs_time_series.squeeze() - predict_interval_lower
 
-    cum_timeseries = jnp.cumsum(obs_time_series.squeeze())
-    cum_impact_point = cum_timeseries - cum_predict_point
-    cum_impact_interval_lower = cum_timeseries - cum_predict_interval_upper
-    cum_impact_interval_upper = cum_timeseries - cum_predict_interval_lower
+    cum_obs = jnp.cumsum(obs_time_series.squeeze())
+    cum_impact_point = cum_obs - cum_predict_point
+    cum_impact_interval_lower = cum_obs - cum_predict_interval_upper
+    cum_impact_interval_upper = cum_obs - cum_predict_interval_lower
 
     impact = {'pointwise': (impact_point, (impact_interval_lower, impact_interval_upper)),
               'cumulative': (cum_impact_point, (cum_impact_interval_lower, cum_impact_interval_upper))}
@@ -259,8 +263,8 @@ def causal_impact(
                               cumulative=time_series_pos.sum())
 
     # Summary statistics of the post-intervention prediction
-    summary['pred'] = Stats(average=forecast_samples.mean(axis=0).mean(),
-                            cumulative=forecast_samples.mean(axis=0).sum())
+    summary['pred'] = Stats(average=forecast_means.mean(axis=0).mean(),
+                            cumulative=forecast_means.mean(axis=0).sum())
     summary['pred_lower'] = Stats(average=jnp.quantile(forecast_samples.mean(axis=1), prob_lower),
                                   cumulative=jnp.quantile(forecast_samples.sum(axis=1), prob_lower))
     summary['pred_upper'] = Stats(average=jnp.quantile(forecast_samples.mean(axis=1), prob_upper),
@@ -269,9 +273,10 @@ def causal_impact(
                                cumulative=jnp.std(forecast_samples.sum(axis=1)))
 
     # Summary statistics of the absolute post-invervention effect
+    effect_means = time_series_pos - forecast_means
     effects = time_series_pos - forecast_samples
-    summary['abs_effect'] = Stats(average=effects.mean(axis=0).mean(),
-                                  cumulative=effects.mean(axis=0).sum())
+    summary['abs_effect'] = Stats(average=effect_means.mean(axis=0).mean(),
+                                  cumulative=effect_means.mean(axis=0).sum())
     summary['abs_effect_lower'] = Stats(average=jnp.quantile(effects.mean(axis=1), prob_lower),
                                         cumulative=jnp.quantile(effects.sum(axis=1), prob_lower))
     summary['abs_effect_upper'] = Stats(average=jnp.quantile(effects.mean(axis=1), prob_upper),
@@ -280,9 +285,10 @@ def causal_impact(
                                      cumulative=jnp.std(effects.sum(axis=1)))
 
     # Summary statistics of the relative post-intervention effect
+    rel_effect_means_sum = effect_means.sum(axis=1) / forecast_means.sum(axis=1)
     rel_effects_sum = effects.sum(axis=1) / forecast_samples.sum(axis=1)
-    summary['rel_effect'] = Stats(average=rel_effects_sum.mean(),
-                                  cumulative=rel_effects_sum.mean())
+    summary['rel_effect'] = Stats(average=rel_effect_means_sum.mean(),
+                                  cumulative=rel_effect_means_sum.mean())
     summary['rel_effect_lower'] = Stats(average=jnp.quantile(rel_effects_sum, prob_lower),
                                         cumulative=jnp.quantile(rel_effects_sum, prob_lower))
     summary['rel_effect_upper'] = Stats(average=jnp.quantile(rel_effects_sum, prob_upper),

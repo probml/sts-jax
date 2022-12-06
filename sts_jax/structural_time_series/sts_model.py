@@ -9,7 +9,7 @@ from dynamax.parameters import ParameterProperties
 from .sts_ssm import StructuralTimeSeriesSSM
 from .sts_components import *
 from dynamax.utils.bijectors import RealToPSDBijector
-from typing import List, Union, Optional, Tuple, OrderedDict
+from typing import List, Union, Optional, Tuple
 import optax
 from .learning import fit_hmc, fit_vi
 from tensorflow_probability.substrates.jax import distributions as tfd
@@ -107,7 +107,8 @@ class StructuralTimeSeries():
         # Convert the time series into the unconstrained space if obs_distribution is not Gaussian
         obs_unconstrained = self._unconstrain_obs(obs_time_series)
         self.offset = obs_unconstrained.mean(axis=0) if constant_offset else 0.
-        obs_centered_unconstrained = obs_unconstrained - self.offset
+        obs_centered = self._center_obs(obs_time_series)
+        obs_centered_unconstrained = self._unconstrain_obs(obs_centered)
 
         # Initialize model paramters with the observed time series
         initial = obs_centered_unconstrained[0]
@@ -149,6 +150,8 @@ class StructuralTimeSeries():
                 self.obs_mats[c.name] = c.obs_mat
                 self.cov_select_mats[c.name] = c.cov_select_mat
 
+        # Add parameters of the observation model if the observed time series is
+        # normally distributed.
         if self.obs_distribution == 'Gaussian':
             if obs_cov_prior is None:
                 obs_cov_prior = IW(df=self.dim_obs, scale=1e-4*obs_scale**2*jnp.eye(self.dim_obs))
@@ -185,13 +188,22 @@ class StructuralTimeSeries():
         num_timesteps: int,
         covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
         key: PRNGKey=jr.PRNGKey(0),
-    ) -> Float[Array, "num_timesteps dim_obs"]:
+    ) -> Tuple[Float[Array, "num_timesteps dim_obs"],
+               Float[Array, "num_timesteps dim_obs"]]:
         """Sample observed time series given model parameters.
         """
+        sts_params = self._ensure_param_has_batch_dim(sts_params)
         sts_ssm = self.as_ssm()
-        _, timeseries = sts_ssm.sample(sts_params, num_timesteps, covariates, key)
 
-        return self._uncenter_obs(timeseries)
+        @jit
+        def single_sample(sts_param):
+            sample_mean, sample_obs = sts_ssm.sample(
+                sts_param, num_timesteps, covariates, key)
+            return self._uncenter_obs(sample_mean), self._uncenter_obs(sample_obs)
+
+        sample_means, sample_obs = vmap(single_sample)(sts_params)
+
+        return sample_means, sample_obs
 
     def marginal_log_prob(
         self,
@@ -212,7 +224,8 @@ class StructuralTimeSeries():
         obs_time_series: Float[Array, "num_timesteps dim_obs"],
         covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
         key: PRNGKey=jr.PRNGKey(0)
-    ) -> Float[Array, "num_timesteps dim_obs"]:
+    ) -> Tuple[Float[Array, "num_params num_timesteps dim_obs"],
+               Float[Array, "num_params num_timesteps dim_obs"]]:
         """Sample latent states from their posterior given model parameters.
         """
         sts_params = self._ensure_param_has_batch_dim(sts_params)
@@ -221,12 +234,13 @@ class StructuralTimeSeries():
 
         @jit
         def single_sample(sts_param):
-            time_series = sts_ssm.posterior_sample(sts_param, obs_centered, covariates, key)[1]
-            return self._uncenter_obs(time_series)
+            predictive_mean, predictive_obs = sts_ssm.posterior_sample(
+                sts_param, obs_centered, covariates, key)
+            return self._uncenter_obs(predictive_mean), self._uncenter_obs(predictive_obs)
 
-        samples = vmap(single_sample)(sts_params)
+        predictive_means, predictive_samples = vmap(single_sample)(sts_params)
 
-        return samples
+        return predictive_means, predictive_samples
 
     def fit_mle(
         self,
@@ -369,8 +383,20 @@ class StructuralTimeSeries():
         past_covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
         forecast_covariates: Optional[Float[Array, "num_forecast_steps dim_covariates"]]=None,
         key: PRNGKey=jr.PRNGKey(0)
-    ) -> Float[Array, "num_forecast_samples num_forecast_steps dim_obs"]:
+    ) -> Tuple[Float[Array, "num_params num_forecast_samples num_forecast_steps dim_obs"],
+               Float[Array, "num_params num_forecast_samples num_forecast_steps dim_obs"]]:
         """Forecast.
+
+        Args:
+            sts_params: parameters of the STS model, or a batch of STS parameters.
+            obs_time_series: observed time series.
+            num_forecast_steps: number of steps of forecast.
+            num_forecast_samples: number of samples for each STS parameter, used to compute
+                summary statistics of the forecast, conditioned on the STS parameter.
+            past_covariates: inputs of the regression component of the STS model, corresponding
+                to the observed time series.
+            forecast_covariates: inputs of the regression component of the STS model,
+                used in forecasting.
         """
         sts_params = self._ensure_param_has_batch_dim(sts_params)
         obs_centered = self._center_obs(obs_time_series)
@@ -378,13 +404,16 @@ class StructuralTimeSeries():
 
         @jit
         def single_forecast(sts_param):
-            forecast = sts_ssm.forecast(
+            _forecast_mean, _forecast_obs = sts_ssm.forecast(
                 sts_param, obs_centered, num_forecast_steps, num_forecast_samples,
                 past_covariates, forecast_covariates, key)
-            return vmap(self._uncenter_obs)(forecast)
+            forecast_mean = vmap(self._uncenter_obs)(_forecast_mean)
+            forecast_obs = vmap(self._uncenter_obs)(_forecast_obs)
+            return forecast_mean, forecast_obs
 
-        forecasts = vmap(single_forecast)(sts_params)
-        return forecasts
+        forecast_means, forecast_obs = vmap(single_forecast)(sts_params)
+
+        return forecast_means, forecast_obs
 
     def _ensure_param_has_batch_dim(self, sts_params):
         """Turn parameters into batch if only one parameter is given"""
@@ -412,9 +441,15 @@ class StructuralTimeSeries():
             return jnp.log(obs_time_series_constrained)
 
     def _center_obs(self, obs_time_series):
-        obs_unconstrained = self._unconstrain_obs(obs_time_series)
-        return self._constrain_obs(obs_unconstrained - self.offset)
+        if self.obs_distribution == 'Gaussian':
+            obs_unconstrained = self._unconstrain_obs(obs_time_series)
+            return self._constrain_obs(obs_unconstrained - self.offset)
+        elif self.obs_distribution == 'Poisson':
+            return obs_time_series
 
     def _uncenter_obs(self, obs_time_series_centered):
-        obs_centered_unconstrained = self._unconstrain_obs(obs_time_series_centered)
-        return self._constrain_obs(obs_centered_unconstrained + self.offset)
+        if self.obs_distribution == 'Gaussian':
+            obs_centered_unconstrained = self._unconstrain_obs(obs_time_series_centered)
+            return self._constrain_obs(obs_centered_unconstrained + self.offset)
+        elif self.obs_distribution == 'Poisson':
+            return obs_time_series_centered

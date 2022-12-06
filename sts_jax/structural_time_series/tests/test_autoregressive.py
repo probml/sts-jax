@@ -94,11 +94,12 @@ def test_autoregress(time_steps=150, key=jr.PRNGKey(3)):
     # Fit and forecast with dynamax
     dynamax_posterior = dynamax_model.decompose_by_component(dynamax_params,
                                                              obs_time_series)
-    dynamax_forecast = dynamax_model.forecast(dynamax_params, obs_time_series,
-                                              num_forecast_steps=50)
     dynamax_posterior_mean = dynamax_model._uncenter_obs(
         dynamax_posterior['ar']['pos_mean']).squeeze()
     dynamax_posterior_cov = dynamax_posterior['ar']['pos_cov'].squeeze()
+
+    dynamax_forecast = dynamax_model.forecast(dynamax_params, obs_time_series,
+                                              num_forecast_steps=50)[1]
     dynamax_forecast_mean = jnp.concatenate(dynamax_forecast).mean(axis=0).squeeze()
     dynamax_forecast_cov = jnp.concatenate(dynamax_forecast).var(axis=0).squeeze()
 
