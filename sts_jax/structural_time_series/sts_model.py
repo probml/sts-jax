@@ -309,7 +309,7 @@ class StructuralTimeSeries():
         sts_ssm = self.as_ssm()
         # Initialize via fit MLE if initial params is not given.
         if initial_params is None:
-            initial_params, _losses = self.fit_mle(obs_time_series, covariates, num_steps=1000)
+            initial_params, _losses = self.fit_mle(obs_time_series, covariates, num_steps=500)
         if param_props is None:
             param_props = self.param_props
 
