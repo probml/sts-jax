@@ -36,14 +36,14 @@ class StructuralTimeSeries():
     * $H_t$: emission matrix, which sums up the contributions of all latent components.
     * $u_t$: is the contribution of the regression component.
     * $F_t$: transition matrix of the latent dynamics
-    * $R_t$: the selection matrix, which is a subset of clumns of base vector $I$, converting
-        the nonsingular covariance matrix into a (possibly singluar) covariance matrix for
+    * $R_t$: the selection matrix, which is a subset of clumnes of base vector $I$, converting
+        the non-singular covariance matrix into a (possibly singular) covariance matrix for
         the latent state $z_t$.
     * $Q_t$: nonsingular covariance matrix of the latent state, so the dimension of $Q_t$
         can be smaller than the dimension of $z_t$.
 
     The covariance matrix of the latent dynamics model takes the form $R Q R^T$, where $Q$ is
-    a nonsingular matrix (blockwise diagonal), and $R$ is the selecting matrix. For example,
+    a nonsingular matrix (block diagonal), and $R$ is the selecting matrix. For example,
     for an STS model for a 1-d time series with a local linear component and a (dummy) seasonal
     component with 4 seasons, $R$ and $Q$ takes the form
     $$
