@@ -216,6 +216,12 @@ on how to contribute.
 
 ## About
 
+$$
+{\left\lbrack \matrix{2 & 3 \cr 4 & 5} \right\rbrack} 
+* \left\lbrack \matrix{1 & 0 \cr 0 & 1} \right\rbrack
+= \left\lbrack \matrix{2 & 3 \cr 4 & 5} \right\rbrack
+$$    
+
 MIT License. 2022
 
 https://github.com/xinglong-li/sts-jax/blob/4b08e7bf4f1bdd940afc90784322d83f409c45d6/sts_jax/figures/causal_obs.png
