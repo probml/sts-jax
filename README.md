@@ -1,6 +1,7 @@
 # sts-jax
 Structural Time Series (STS) in JAX
 
+
 This library builds on
 [Dynamax](https://github.com/probml/dynamax/tree/main/dynamax) library
 for state-space models in JAX.
