@@ -28,7 +28,7 @@ class StructuralTimeSeries():
 
     The STS model takes the form:
 
-    $$y_t = H_t z_t + u_t \epsilon_t, \qquad  \epsilon_t \sim \mathcal{N}(0, \Sigma_t)$$
+    $$y_t = H_t z_t + u_t + \epsilon_t, \qquad  \epsilon_t \sim \mathcal{N}(0, \Sigma_t)$$
     $$z_{t+1} = F_t z_t + R_t \eta_t, \qquad eta_t \sim \mathcal{N}(0, Q_t)$$
 
     where
