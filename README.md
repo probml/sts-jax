@@ -78,199 +78,133 @@ More information can be found in these books:
 
 > -   \"Machine Learning: Advanced Topics\", K. Murphy, MIT Press 2023.
 >     Available at <https://probml.github.io/pml-book/book2.html>.
-> -   \"Bayesian Filtering and Smoothing\", S. Särkkä, Cambridge
->     University Press, 2013. Available at
->     <https://users.aalto.fi/~ssarkka/pub/cup_book_online_20131111.pdf>
+> -   \"Time Series Analysis by State Space Methods (2nd edn)\", James Durbin, Siem Jan Koopman,
+>     Oxford University Press, 2012.
 
 ## Example usage
 
-Dynamax includes classes for many kinds of SSM. You can use these models
-to simulate data, and you can fit the models using standard learning
-algorithms like expectation-maximization (EM) and stochastic gradient
-descent (SGD). Below we illustrate the high level (object-oriented) API
-for the case of an HMM with Gaussian emissions. (See [this
+The STS model is constructed by providing the observed time series and specifying a list of
+components and the distribution family of the observation. The sts-jax package provides
+common STS components including **local linear trend** component, **seasonal** component, 
+**cycle** component, **autoregressive** component, and **regression** component. More components
+will be added in the future. The observed time series can follow either the **Gaussian**
+distribution or the **Poisson** distribution. 
+
+The parameters of the STS model can be learned by **MLE**, **VI**, or **HMC**.
+
+Below we illustrate the high level (object-oriented) API for the case of an STS with Gaussian
+observations. (See [this
 notebook](https://github.com/probml/dynamax/blob/main/docs/notebooks/hmm/gaussian_hmm.ipynb)
 for a runnable version of this code.)
 
-## CO2 example
-```python
-import jax.numpy as jnp
-import jax.random as jr
-import matplotlib.pyplot as plt
-from dynamax.hidden_markov_model import GaussianHMM
+## Electricity usage example
 
-key1, key2, key3 = jr.split(jr.PRNGKey(0), 3)
-num_states = 3
-emission_dim = 2
-num_timesteps = 1000
-
-# Make a Gaussian HMM and sample data from it
-hmm = GaussianHMM(num_states, emission_dim)
-true_params, _ = hmm.initialize(key1)
-true_states, emissions = hmm.sample(true_params, key2, num_timesteps)
-
-# Make a new Gaussian HMM and fit it with EM
-params, props = hmm.initialize(key3, method="kmeans", emissions=emissions)
-params, lls = hmm.fit_em(params, props, emissions, num_iters=20)
-
-# Plot the marginal log probs across EM iterations
-plt.plot(lls)
-plt.xlabel("EM iterations")
-plt.ylabel("marginal log prob.")
-
-# Use fitted model for posterior inference
-post = hmm.smoother(params, emissions)
-print(post.smoothed_probs.shape) # (1000, 3)
-```
-
-JAX allows you to easily vectorize these operations with `vmap`.
-For example, you can sample and fit to a batch of emissions as shown below.
-
-```python
-from functools import partial
-from jax import vmap
-
-num_seq = 200
-batch_true_states, batch_emissions = \
-    vmap(partial(hmm.sample, true_params, num_timesteps=num_timesteps))(
-        jr.split(key2, num_seq))
-print(batch_true_states.shape, batch_emissions.shape) # (200,1000) and (200,1000,2)
-
-# Make a new Gaussian HMM and fit it with EM
-params, props = hmm.initialize(key3, method="kmeans", emissions=batch_emissions)
-params, lls = hmm.fit_em(params, props, batch_emissions, num_iters=20)
-```
-
-These examples demonstrate the dynamax models, but we can also call the low-level
-inference code directly.
-
+This example is adapted from the demo of sts library of the package tensorflow_probability.
 <p align="center">
   <img src="https://raw.githubusercontent.com/probml/sts_jax/main/docs/figures/electr_obs.png">
 </p>
 
+```python
+import sts_jax.structural_time_series.sts_model as sts
+
+# The model has two seasonal components, one autoregressive component and one regression component.
+hour_of_day_effect = sts.SeasonalDummy(num_seasons=24,
+                                      name='hour_of_day_effect')
+day_of_week_effect = sts.SeasonalTrig(num_seasons=7, num_steps_per_season=24,
+                                      name='day_of_week_effect')
+temperature_effect = sts.LinearRegression(dim_covariates=1, add_bias=True,
+                                          name='temperature_effect')
+autoregress_effect = sts.Autoregressive(order=1,
+                                        name='autoregress_effect')
+
+# The STS model is constructed by providing the observed time series,
+# specifying a list of components and the distribution family of the observations.
+model = sts.StructuralTimeSeries(
+    [hour_of_day_effect, day_of_week_effect, temperature_effect, autoregress_effect],
+    obs_time_series=demand_training_data, obs_distribution='Gaussian',
+    covariates=temperature_training_data)
+
+# Perform the MLE estimation via SGD implemented in the package dynamax.
+opt_param, _losses = model.fit_mle(obs_time_series,
+                                   covariates=temperature_training_data,
+                                   num_steps=2000)
+
+# After the parameter is learned, forecast
+forecast_means, forecasts = model.forecast(opt_param,
+                                           obs_time_series,
+                                           num_forecast_steps,
+                                           past_covariates=temperature_training_data,
+                                           forecast_covariates=temperature_predict_data)
+```
 <p align="center">
   <img src="https://raw.githubusercontent.com/probml/sts_jax/main/docs/figures/electr_forecast.png">
 </p>
 
 ## Poisson example
-```python
-import jax.numpy as jnp
-import jax.random as jr
-import matplotlib.pyplot as plt
-from dynamax.hidden_markov_model import GaussianHMM
-
-key1, key2, key3 = jr.split(jr.PRNGKey(0), 3)
-num_states = 3
-emission_dim = 2
-num_timesteps = 1000
-
-# Make a Gaussian HMM and sample data from it
-hmm = GaussianHMM(num_states, emission_dim)
-true_params, _ = hmm.initialize(key1)
-true_states, emissions = hmm.sample(true_params, key2, num_timesteps)
-
-# Make a new Gaussian HMM and fit it with EM
-params, props = hmm.initialize(key3, method="kmeans", emissions=emissions)
-params, lls = hmm.fit_em(params, props, emissions, num_iters=20)
-
-# Plot the marginal log probs across EM iterations
-plt.plot(lls)
-plt.xlabel("EM iterations")
-plt.ylabel("marginal log prob.")
-
-# Use fitted model for posterior inference
-post = hmm.smoother(params, emissions)
-print(post.smoothed_probs.shape) # (1000, 3)
-```
-
-JAX allows you to easily vectorize these operations with `vmap`.
-For example, you can sample and fit to a batch of emissions as shown below.
-
-```python
-from functools import partial
-from jax import vmap
-
-num_seq = 200
-batch_true_states, batch_emissions = \
-    vmap(partial(hmm.sample, true_params, num_timesteps=num_timesteps))(
-        jr.split(key2, num_seq))
-print(batch_true_states.shape, batch_emissions.shape) # (200,1000) and (200,1000,2)
-
-# Make a new Gaussian HMM and fit it with EM
-params, props = hmm.initialize(key3, method="kmeans", emissions=batch_emissions)
-params, lls = hmm.fit_em(params, props, batch_emissions, num_iters=20)
-```
-
-These examples demonstrate the dynamax models, but we can also call the low-level
-inference code directly.
-
 <p align="center">
   <img src="https://raw.githubusercontent.com/probml/sts_jax/main/docs/figures/poisson_obs.png">
 </p>
+
+```python
+import sts_jax.structural_time_series.sts_model as sts
+
+trend = sts.LocalLinearTrend()
+model = sts.StructuralTimeSeries([trend],
+                                 obs_distribution='Poisson',
+                                 obs_time_series=counts_training)
+
+param_samples, _log_probs = model.fit_hmc(num_samples=200,
+                                          obs_time_series=counts_training)
+
+forecasts = model.forecast(param_samples, obs_time_series, num_forecast_steps)[1]
+```
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/probml/sts_jax/main/docs/figures/poisson_forecast.png">
 </p>
 
 ## Causal Impact example
-```python
-import jax.numpy as jnp
-import jax.random as jr
-import matplotlib.pyplot as plt
-from dynamax.hidden_markov_model import GaussianHMM
-
-key1, key2, key3 = jr.split(jr.PRNGKey(0), 3)
-num_states = 3
-emission_dim = 2
-num_timesteps = 1000
-
-# Make a Gaussian HMM and sample data from it
-hmm = GaussianHMM(num_states, emission_dim)
-true_params, _ = hmm.initialize(key1)
-true_states, emissions = hmm.sample(true_params, key2, num_timesteps)
-
-# Make a new Gaussian HMM and fit it with EM
-params, props = hmm.initialize(key3, method="kmeans", emissions=emissions)
-params, lls = hmm.fit_em(params, props, emissions, num_iters=20)
-
-# Plot the marginal log probs across EM iterations
-plt.plot(lls)
-plt.xlabel("EM iterations")
-plt.ylabel("marginal log prob.")
-
-# Use fitted model for posterior inference
-post = hmm.smoother(params, emissions)
-print(post.smoothed_probs.shape) # (1000, 3)
-```
-
-JAX allows you to easily vectorize these operations with `vmap`.
-For example, you can sample and fit to a batch of emissions as shown below.
-
-```python
-from functools import partial
-from jax import vmap
-
-num_seq = 200
-batch_true_states, batch_emissions = \
-    vmap(partial(hmm.sample, true_params, num_timesteps=num_timesteps))(
-        jr.split(key2, num_seq))
-print(batch_true_states.shape, batch_emissions.shape) # (200,1000) and (200,1000,2)
-
-# Make a new Gaussian HMM and fit it with EM
-params, props = hmm.initialize(key3, method="kmeans", emissions=batch_emissions)
-params, lls = hmm.fit_em(params, props, batch_emissions, num_iters=20)
-```
-
-These examples demonstrate the dynamax models, but we can also call the low-level
-inference code directly.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/probml/sts_jax/main/docs/figures/causal_obs.png">
+  <img src="https://github.com/xinglong-li/sts-jax/blob/4b08e7bf4f1bdd940afc90784322d83f409c45d6/sts_jax/figures/causal_forecast.png">
 </p>
 
+```python
+from sts_jax.causal_impact.causal_impact import causal_impact
+
+# Run an anlysis
+obs_time_series = jnp.expand_dims(y, 1)
+
+impact = causal_impact(obs_time_series, intervention_timepoint, 'Gaussian', covariates,
+                       sts_model=None, confidence_level=0.95, key=jr.PRNGKey(0), num_samples=200)
+
+impact.plot()
+```
 <p align="center">
   <img src="https://raw.githubusercontent.com/probml/sts_jax/main/docs/figures/causal_forecast.png">
 </p>
+
+```
+impact.print_summary()
+```
+```
+Posterior inference of the causal impact:
+
+                               Average            Cumulative     
+Actual                          129.93             3897.88       
+
+Prediction (s.d.)           120.01 (2.04)      3600.42 (61.31)   
+95% CI                     [114.82, 123.07]   [3444.72, 3692.09] 
+
+Absolute effect (s.d.)       9.92 (2.04)        297.45 (61.31)   
+95% CI                      [6.86, 15.11]      [205.78, 453.16]  
+
+Relative effect (s.d.)      8.29% (1.89%)       8.29% (1.89%)    
+95% CI                     [5.57%, 13.16%]     [5.57%, 13.16%]   
+
+Posterior tail-area probability p: 0.0050
+Posterior prob of a causal effect: 99.50%
+```
 
 ## Contributing
 
@@ -280,3 +214,6 @@ on how to contribute.
 ## About
 
 MIT License. 2022
+
+https://github.com/xinglong-li/sts-jax/blob/4b08e7bf4f1bdd940afc90784322d83f409c45d6/sts_jax/figures/causal_obs.png
+
