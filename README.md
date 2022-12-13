@@ -81,7 +81,7 @@ Alternatively, if the observation $Y_t$ follows Poisson distribution, the infere
 latent variables $Z_{1:t}$ is based on the algorithm 'conditional moment Gaussian filtering
 (smoothing)' implemented in the library dynamax.
  
-The marginal likelihood of $y_{1:T}$ conditioned on parameters can be evaluated as a 
+The marginal likelihood of $Y_{1:T}$ conditioned on parameters can be evaluated as a 
 byproduct during the inference. Using autograd of JAX, the parameters of the STS model
 can be learned via **MLE**(based on SGD implemented in the library 'optax'), **VI**,
 or **HMC**(from the library 'blackjax').
