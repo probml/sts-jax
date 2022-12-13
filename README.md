@@ -101,8 +101,8 @@ for a runnable version of this code.)
 
 This example is adapted from the demo of sts library of the package tensorflow_probability.
 <p align="center">
-  <img src="https://raw.githubusercontent.com/probml/sts_jax/main/docs/figures/electr_obs.png">
-</p>
+<img src="./sts_jax/figures/electr_obs.png" alt="drawing" style="width:600px;"/>
+<p>
 
 ```python
 import sts_jax.structural_time_series.sts_model as sts
@@ -136,14 +136,13 @@ forecast_means, forecasts = model.forecast(opt_param,
                                            past_covariates=temperature_training_data,
                                            forecast_covariates=temperature_predict_data)
 ```
+
 <p align="center">
-  <img src="https://raw.githubusercontent.com/probml/sts_jax/main/docs/figures/electr_forecast.png">
-</p>
+<img src="./sts_jax/figures/electr_forecast.png" alt="drawing" style="width:600px;"/>
+<p>
+
 
 ## Poisson example
-<p align="center">
-  <img src="https://raw.githubusercontent.com/probml/sts_jax/main/docs/figures/poisson_obs.png">
-</p>
 
 ```python
 import sts_jax.structural_time_series.sts_model as sts
@@ -160,14 +159,18 @@ forecasts = model.forecast(param_samples, obs_time_series, num_forecast_steps)[1
 ```
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/probml/sts_jax/main/docs/figures/poisson_forecast.png">
-</p>
+<img src="./sts_jax/figures/poisson_forecast.png" alt="drawing" style="width:600px;"/>
+<p>
+
+<p align="center">
+<img src="./sts_jax/figures/comparison.png" alt="drawing" style="width:600px;"/>
+<p>
 
 ## Causal Impact example
 
 <p align="center">
-  <img src="https://github.com/xinglong-li/sts-jax/blob/4b08e7bf4f1bdd940afc90784322d83f409c45d6/sts_jax/figures/causal_forecast.png">
-</p>
+<img src="./sts_jax/figures/causal_obs.png" alt="drawing" style="width:600px;"/>
+<p>
 
 ```python
 from sts_jax.causal_impact.causal_impact import causal_impact
@@ -181,8 +184,8 @@ impact = causal_impact(obs_time_series, intervention_timepoint, 'Gaussian', cova
 impact.plot()
 ```
 <p align="center">
-  <img src="https://raw.githubusercontent.com/probml/sts_jax/main/docs/figures/causal_forecast.png">
-</p>
+<img src="./sts_jax/figures/causal_forecast.png" alt="drawing" style="width:600px;"/>
+<p>
 
 ```
 impact.print_summary()
@@ -216,4 +219,3 @@ on how to contribute.
 MIT License. 2022
 
 https://github.com/xinglong-li/sts-jax/blob/4b08e7bf4f1bdd940afc90784322d83f409c45d6/sts_jax/figures/causal_obs.png
-
