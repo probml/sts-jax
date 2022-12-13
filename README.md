@@ -23,7 +23,7 @@ but is built entirely in JAX.
 To install the latest development branch:
 
 ``` {.console}
-pip install git+https://github.com/probml/dynamax.git
+pip install git+https://github.com/probml/sts-jax
 ```
 
 ## What are structural time series (STS) models?
