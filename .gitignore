@@ -7,7 +7,7 @@ dist/
 *.ipynb_checkpoints
 
 # ignore figures unless manually added
-*.png
+# *.png
 *.jpg
 *.pdf
 *-dot

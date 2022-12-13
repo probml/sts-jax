@@ -28,7 +28,7 @@ class StructuralTimeSeries():
 
     The STS model takes the form:
 
-    $$y_t = H_t z_t + u_t \epsilon_t, \qquad  \epsilon_t \sim \mathcal{N}(0, \Sigma_t)$$
+    $$y_t = H_t z_t + u_t + \epsilon_t, \qquad  \epsilon_t \sim \mathcal{N}(0, \Sigma_t)$$
     $$z_{t+1} = F_t z_t + R_t \eta_t, \qquad eta_t \sim \mathcal{N}(0, Q_t)$$
 
     where
@@ -36,14 +36,14 @@ class StructuralTimeSeries():
     * $H_t$: emission matrix, which sums up the contributions of all latent components.
     * $u_t$: is the contribution of the regression component.
     * $F_t$: transition matrix of the latent dynamics
-    * $R_t$: the selection matrix, which is a subset of clumns of base vector $I$, converting
-        the nonsingular covariance matrix into a (possibly singluar) covariance matrix for
+    * $R_t$: the selection matrix, which is a subset of clumnes of base vector $I$, converting
+        the non-singular covariance matrix into a (possibly singular) covariance matrix for
         the latent state $z_t$.
     * $Q_t$: nonsingular covariance matrix of the latent state, so the dimension of $Q_t$
         can be smaller than the dimension of $z_t$.
 
     The covariance matrix of the latent dynamics model takes the form $R Q R^T$, where $Q$ is
-    a nonsingular matrix (blockwise diagonal), and $R$ is the selecting matrix. For example,
+    a nonsingular matrix (block diagonal), and $R$ is the selecting matrix. For example,
     for an STS model for a 1-d time series with a local linear component and a (dummy) seasonal
     component with 4 seasons, $R$ and $Q$ takes the form
     $$
@@ -309,7 +309,7 @@ class StructuralTimeSeries():
         sts_ssm = self.as_ssm()
         # Initialize via fit MLE if initial params is not given.
         if initial_params is None:
-            initial_params, _losses = self.fit_mle(obs_time_series, covariates, num_steps=1000)
+            initial_params, _losses = self.fit_mle(obs_time_series, covariates, num_steps=500)
         if param_props is None:
             param_props = self.param_props
 
