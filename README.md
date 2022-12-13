@@ -206,7 +206,9 @@ The inference of causal impact is implemented on top of the STS module.
 The following demo is an example of inferring causal impact where an intervention on
 the time series $Y_{1:T}$ happened at time step $t=70$, and another time series
 $X_{1:T}$, which is not affected by the intervention, is used as a covariate in
-modeling the trend of $Y_{1:T}$.
+modeling the trend of $Y_{1:T}$. The implementation and the format of output of
+the causal impact inference in this package follows that of the R package
+[CausalImpact](https://google.github.io/CausalImpact/CausalImpact.html).
 
 
 <p align="center">
