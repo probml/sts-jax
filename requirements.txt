@@ -2,6 +2,7 @@ jax>=0.3.15
 jaxlib
 optax
 chex
+tensorflow>=2.11
 tensorflow_probability
 matplotlib
 seaborn
@@ -10,4 +11,6 @@ flax
 scikit-learn
 blackjax
 jaxopt
+jaxtyping
+typing-extensions
 #git+https://github.com/probml/dynamax.git #the latest development branch of dynamic

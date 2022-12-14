@@ -7,12 +7,21 @@ import jax.scipy as jsp
 from jaxtyping import Float, Array
 from dynamax.ssm import SSM
 from dynamax.types import PRNGKey, Scalar
-from dynamax.generalized_gaussian_ssm import (
-    ParamsGGSSM,
-    EKFIntegrals,
+
+from dynamax.generalized_gaussian_ssm.models import ParamsGGSSM
+from dynamax.generalized_gaussian_ssm.inference import (
+     EKFIntegrals,
     iterated_conditional_moments_gaussian_filter as cmgf_filt,
     iterated_conditional_moments_gaussian_smoother as cmgf_smooth
-    )
+)
+
+#from dynamax.generalized_gaussian_ssm import (
+#    ParamsGGSSM,
+#    EKFIntegrals,
+#    iterated_conditional_moments_gaussian_filter as cmgf_filt,
+#    iterated_conditional_moments_gaussian_smoother as cmgf_smooth
+#    )
+
 from dynamax.linear_gaussian_ssm import (
     ParamsLGSSM,
     ParamsLGSSMInitial,

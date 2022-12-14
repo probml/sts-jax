@@ -15,6 +15,8 @@ from .learning import fit_hmc, fit_vi
 from tensorflow_probability.substrates.jax import distributions as tfd
 import tensorflow_probability.substrates.jax.bijectors as tfb
 
+from jaxtyping import Array, Float
+from typing import NamedTuple, Optional, Union, Callable
 
 class StructuralTimeSeries():
     r"""The class of the Bayesian structural time series (STS) model.
@@ -275,7 +277,7 @@ class StructuralTimeSeries():
         param_props: ParamPropertiesSTS=None,
         num_step_iters: int=50,
         key: PRNGKey=jr.PRNGKey(0)
-    ) -> Tuple[ParamsSTS[Array], Float[Array, "num_samples"]]:
+    ):
         """Sample parameters of the STS model from ADVI posterior.
         """
         sts_ssm = self.as_ssm()
@@ -303,7 +305,7 @@ class StructuralTimeSeries():
         warmup_steps: int=100,
         verbose: bool=True,
         key: PRNGKey=jr.PRNGKey(0)
-    ) -> Tuple[ParamsSTS[Array], Float[Array, "num_samples"]]:
+    ):
         """Sample parameters of the STS model from their posterior distributions with HMC (NUTS).
         """
         sts_ssm = self.as_ssm()

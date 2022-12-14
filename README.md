@@ -28,17 +28,19 @@ $$z_t = [c_{1, t}, c_{2, t}, ...]$$
 
 where $c_{i,t}$ is the state of latent component $c_i$ at time step $t$.
 
-The STS model takes the form:
+The STS model (with scalar Gaussian observations) takes the form:
 
-$$y_t = H_t z_t + u_t + \epsilon_t, \qquad  \epsilon_t \sim \mathcal{N}(0, \Sigma_t)$$
+$$y_t = H_t z_t + u_t + \epsilon_t, \qquad  \epsilon_t \sim \mathcal{N}(0, \sigma^2_t)$$
 
 $$z_{t+1} = F_t z_t + R_t \eta_t, \qquad \eta_t \sim \mathcal{N}(0, Q_t)$$
 
 where
 
+* $y_t$: observation (emission) at time $t$.
+* $\sigma^2_t$: variance of the observation noise.
 * $H_t$: emission matrix, which sums up the contributions of all latent components.
-* $u_t$: is the contribution of the regression component.
-* $F_t$: transition matrix of the latent dynamics of the state space model
+* $u_t = x_t^T \beta$: regression component from external inputs.
+* $F_t$: fixed transition matrix of the latent dynamics.
 * $R_t$: the selection matrix, which is a subset of columns of base vector $e_i$, converting
     the non-singular covariance matrix into the (possibly singular) covariance matrix of
     the latent state $z_t$.
@@ -129,7 +131,8 @@ opt_param, _losses = model.fit_mle(obs_time_series,
                                    num_steps=2000)
 ```
 
-We can now plug in the parameters and use ancestral sampling from the
+We can now plug in the parameters and the future inputs,
+and use ancestral sampling from the
 filtered posterior to forecast future observations.
 
 ```python
