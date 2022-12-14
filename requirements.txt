@@ -10,4 +10,4 @@ flax
 scikit-learn
 blackjax
 jaxopt
-git+https://github.com/probml/dynamax.git #the latest development branch of dynamic
+#git+https://github.com/probml/dynamax.git #the latest development branch of dynamic
