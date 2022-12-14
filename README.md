@@ -64,22 +64,27 @@ components and the distribution family of the observation. This library implemen
 common STS components including **local linear trend** component, **seasonal** component, 
 **cycle** component, **autoregressive** component, and **regression** component.
 The observed time series can follow either the **Gaussian**
-distribution or the **Poisson** distribution. 
+distribution or the **Poisson** distribution. (Other likelihood functions can also be added.)
 
 Internally, the STS model is converted to the corresponding state space model (SSM) and inference
 and learning of parameters are performed on the SSM.
-
 If the observation $Y_t$ follows a Gaussian distribution, the inference of latent variables
-$Z_{1:T}$ (gven the parameters) is based on the Kalman smoother.
-Alternatively, if the observation $Y_t$ follows Poisson distribution, the inference of the
-latent variables $Z_{1:t}$ is based on the 
-[conditional moment Gaussian smoother algorithm](https://github.com/probml/dynamax/tree/main/dynamax/generalized_gaussian_ssm).
- 
-The parameters of the STS model
-can be learned via **MLE** (based on SGD implemented in the library [optax](https://github.com/deepmind/optax)), **VI**,
-or **HMC** (from the library [blackjax](https://github.com/blackjax-devs/blackjax)).
+$Z_{1:T}$ (gven the parameters) is based on the 
+[Kalman filter]((https://github.com/probml/dynamax/tree/main/dynamax/linear_gaussian_ssm).
+Alternatively, if the observation $Y_t$ follows Poisson distribution, with
+a mean given by $E[Y_t|Z_t] = e^{H_t Z_t + u_t}$, the inference of the
+latent variables $Z_{1:t}$ is based on a generalization of the extended
+Kalman filter, which we will the
+[conditional moment Gaussian filter](https://github.com/probml/dynamax/tree/main/dynamax/generalized_gaussian_ssm).
+
 The marginal likelihood of $Y_{1:T}$ conditioned on parameters can be evaluated as a 
-byproduct during the inference. 
+byproduct of the forwards filtering process.
+This can then be used to learn  the parameters of the STS model,
+using  **MLE** (based on SGD implemented in the library [optax](https://github.com/deepmind/optax)),
+**ADVI** (using a Gaussian posterior approximation on the unconstrained parameter space),
+or **HMC** (from the library [blackjax](https://github.com/blackjax-devs/blackjax)).
+The parameter estimation is done offline, given one or more historical timeseries.
+These parameters can then be used for forecasting the future.
 
 Below we illustrate the API applied to some example datasets.
 
@@ -160,7 +165,7 @@ of the demo, which is similar to the electricity example.
 
 We can also fit STS models with discrete observations following the Poisson 
 distribution. Internally, the inference of the latent states $Z_{1:T}$ in the corresponding SSM
-is based on the algorithm 'conditional moment Gaussian filtering' implemented
+is based on the (generalized) extended Kalman filter implemented
 in the library dynamax. An STS model for a Poisson-distributed time series can be constructed
 simply by specifying observation distribution to be 'Poisson'. Everything else is the same
 as the Gaussian case.
@@ -198,7 +203,7 @@ HMC on the joint distribution of the latent states $Z_{1:T}$ and the parameters,
 on the observations $Y_{1:T}$. Since the dimension of the state space grows linearly
 with the length of the time series to be fitted, the implementation will be inefficient
 when $T$ is relatively large.  By contrast, we (approximately) marginalize out $Z_{1:T}$,
-using a generalized Kalman filter,
+using a generalized extended Kalman filter,
 and just perform HMC in the collapsed parameter space. This is much faster, but yields
 comparable error, as we show below. (The burnin steps of HMC in the TFP-STS
 implementation is adjusted such that the forecast error of the two implementations
