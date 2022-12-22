@@ -13,4 +13,4 @@ blackjax
 jaxopt
 jaxtyping
 typing-extensions
-git+https://github.com/probml/dynamax.git#egg=dynamax #the latest development branch of dynamic
+dynamax @ git+https://github.com/probml/dynamax.git#egg=dynamax
