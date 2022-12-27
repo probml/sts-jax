@@ -1,20 +1,26 @@
-import blackjax
 from collections import OrderedDict
-from fastprogress.fastprogress import progress_bar
 from functools import partial
-from jax import jit, lax, vmap, value_and_grad
+from typing import Optional, Tuple
+
+import blackjax
 import jax.numpy as jnp
 import jax.random as jr
-from jaxtyping import Float, Array
-from jax.tree_util import tree_map, tree_leaves
 import jax.scipy.stats.norm as norm
 import optax
-from dynamax.parameters import to_unconstrained, from_unconstrained, log_det_jac_constrain
+from dynamax.parameters import (
+    from_unconstrained,
+    log_det_jac_constrain,
+    to_unconstrained,
+)
 from dynamax.types import PRNGKey
 from dynamax.utils.utils import ensure_array_has_batch_dim, pytree_stack
+from fastprogress.fastprogress import progress_bar
+from jax import jit, lax, value_and_grad, vmap
+from jax.tree_util import tree_leaves, tree_map
+from jaxtyping import Array, Float
+
+from .sts_components import ParamPropertiesSTS, ParamsSTS
 from .sts_ssm import StructuralTimeSeriesSSM
-from .sts_components import ParamsSTS, ParamPropertiesSTS
-from typing import Optional, Tuple
 
 
 def fit_vi(
@@ -23,11 +29,11 @@ def fit_vi(
     param_props: ParamPropertiesSTS,
     num_samples: int,
     emissions: Float[Array, "num_timesteps dim_obs"],
-    inputs: Optional[Float[Array, "num_timesteps dim_inputs"]]=None,
-    optimizer: optax.GradientTransformation=optax.adam(1e-1),
-    K: int=1,
-    key: PRNGKey=jr.PRNGKey(0),
-    num_step_iters: int=50
+    inputs: Optional[Float[Array, "num_timesteps dim_inputs"]] = None,
+    optimizer: optax.GradientTransformation = optax.adam(1e-1),
+    K: int = 1,
+    key: PRNGKey = jr.PRNGKey(0),
+    num_step_iters: int = 50,
 ) -> Tuple[ParamsSTS, Float[Array, "num_samples"]]:
     """
     ADVI approximate the posterior distribtuion p of unconstrained global parameters
@@ -68,15 +74,23 @@ def fit_vi(
 
     @jit
     def elbo(vi_hyper, key):
-        """Evaluate negative ELBO at fixed sample from the approximate distribution q.
-        """
+        """Evaluate negative ELBO at fixed sample from the approximate distribution q."""
         keys = iter(jr.split(key, 10))
         # Turn VI parameters and fixed noises into samples of unconstrained parameters of q.
-        unc_params = tree_map(lambda mu, ls: mu + jnp.exp(ls) * jr.normal(next(keys), ls.shape).sum(),
-                              vi_hyper['mu'], vi_hyper['log_sig'])
+        unc_params = tree_map(
+            lambda mu, ls: mu + jnp.exp(ls) * jr.normal(next(keys), ls.shape).sum(), vi_hyper["mu"], vi_hyper["log_sig"]
+        )
         log_probs = unnorm_log_pos(unc_params)
-        log_q = jnp.array(tree_leaves(tree_map(lambda x, *p: norm.logpdf(x, p[0], jnp.exp(p[1])).sum(),
-                                               unc_params, vi_hyper['mu'], vi_hyper['log_sig']))).sum()
+        log_q = jnp.array(
+            tree_leaves(
+                tree_map(
+                    lambda x, *p: norm.logpdf(x, p[0], jnp.exp(p[1])).sum(),
+                    unc_params,
+                    vi_hyper["mu"],
+                    vi_hyper["log_sig"],
+                )
+            )
+        ).sum()
         return log_probs - log_q
 
     loss_fn = lambda vi_hyp, key: -jnp.mean(vmap(partial(elbo, vi_hyp))(jr.split(key, K)))
@@ -85,8 +99,8 @@ def fit_vi(
     curr_vi_mus = initial_unc_params
     curr_vi_log_sigs = tree_map(lambda x: jnp.zeros(x.shape), initial_unc_params)
     curr_vi_hyper = OrderedDict()
-    curr_vi_hyper['mu'] = curr_vi_mus
-    curr_vi_hyper['log_sig'] = curr_vi_log_sigs
+    curr_vi_hyper["mu"] = curr_vi_mus
+    curr_vi_hyper["log_sig"] = curr_vi_log_sigs
 
     # Optimize
     opt_state = optimizer.init(curr_vi_hyper)
@@ -98,16 +112,18 @@ def fit_vi(
         updates, opt_state = optimizer.update(grads, opt_state)
         vi_hyp = optax.apply_updates(vi_hyp, updates)
         return (vi_hyp, opt_state), loss
+
     # Run the optimizer
     initial_carry = (curr_vi_hyper, opt_state)
-    (vi_hyp_fitted, opt_state), losses = lax.scan(
-        train_step, initial_carry, jr.split(key1, num_step_iters))
+    (vi_hyp_fitted, opt_state), losses = lax.scan(train_step, initial_carry, jr.split(key1, num_step_iters))
 
     # Sample from the learned approximate posterior q
     vi_sample = lambda key: from_unconstrained(
-        tree_map(lambda mu, s: mu + jnp.exp(s)*jr.normal(key, s.shape),
-                 vi_hyp_fitted['mu'], vi_hyp_fitted['log_sig']),
-        param_props)
+        tree_map(
+            lambda mu, s: mu + jnp.exp(s) * jr.normal(key, s.shape), vi_hyp_fitted["mu"], vi_hyp_fitted["log_sig"]
+        ),
+        param_props,
+    )
     samples = vmap(vi_sample)(jr.split(key2, num_samples))
 
     return samples, losses
@@ -119,13 +135,12 @@ def fit_hmc(
     param_props: ParamPropertiesSTS,
     num_samples: int,
     emissions: Float[Array, "num_timesteps dim_obs"],
-    inputs: Optional[Float[Array, "num_timesteps dim_inputs"]]=None,
-    key: PRNGKey=jr.PRNGKey(0),
-    warmup_steps: int=100,
-    verbose: bool=True
+    inputs: Optional[Float[Array, "num_timesteps dim_inputs"]] = None,
+    key: PRNGKey = jr.PRNGKey(0),
+    warmup_steps: int = 100,
+    verbose: bool = True,
 ) -> Tuple[ParamsSTS, Float[Array, "num_samples"]]:
-    """Sample parameters of the model using HMC.
-    """
+    """Sample parameters of the model using HMC."""
     # Make sure the emissions and covariates have batch dimensions
     batch_emissions = ensure_array_has_batch_dim(emissions, model.emission_shape)
     batch_inputs = ensure_array_has_batch_dim(inputs, model.inputs_shape)
@@ -142,8 +157,7 @@ def fit_hmc(
         return lp
 
     # Initialize the HMC sampler using window_adaptations
-    warmup = blackjax.window_adaptation(blackjax.nuts, unnorm_log_pos, num_steps=warmup_steps,
-                                        progress_bar=verbose)
+    warmup = blackjax.window_adaptation(blackjax.nuts, unnorm_log_pos, num_steps=warmup_steps, progress_bar=verbose)
     init_key, key = jr.split(key)
     hmc_initial_state, hmc_kernel, _ = warmup.run(init_key, initial_unc_params)
 

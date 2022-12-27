@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from distutils.core import setup
+
 import setuptools
 
 with open("requirements.txt") as f:

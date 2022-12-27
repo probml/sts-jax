@@ -13,3 +13,5 @@ dist/
 *-dot
 *.DS_Store
 .vscode/
+
+.coverage
