@@ -106,7 +106,6 @@ def test_local_linear_trend(time_steps=150, key=jr.PRNGKey(3)):
     # distributions of initial state, which will influence the posterior inference of
     # the first few states.
     len_step = jnp.abs(tfp_posterior_mean[1:] - tfp_posterior_mean[:-1]).mean()
-    print(len_step)
     start = 10
 
     print(tfp_posterior_mean[start : start + 5])
@@ -114,8 +113,8 @@ def test_local_linear_trend(time_steps=150, key=jr.PRNGKey(3)):
     print(tfp_posterior_scale[start : start + 5])
     print(jnp.sqrt(dynamax_posterior_cov[start : start + 5]))
 
-    assert jnp.allclose(tfp_posterior_mean[start:], dynamax_posterior_mean[start:], atol=1e-1)  # len_step)
-    assert jnp.allclose(tfp_posterior_scale[start:], jnp.sqrt(dynamax_posterior_cov)[start:], atol=1e-1)
+    assert jnp.allclose(tfp_posterior_mean[start:], dynamax_posterior_mean[start:], atol=1e-1, rtol=1e-1) 
+    assert jnp.allclose(tfp_posterior_scale[start:], jnp.sqrt(dynamax_posterior_cov)[start:], atol=1e-1, rtol=1e-1)
     # Compoare forecast by tfp and dynamax.
     # (Skipped because the forecast mean and variances are now computed as sample mean and variance,
     # for dynamax model)
