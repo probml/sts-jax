@@ -148,7 +148,7 @@ class StructuralTimeSeriesSSM(SSM):
         raise NotImplementedError
 
     def emission_distribution(
-        self, state: Float[Array, "dim_state"], obs_input: Float[Array, "dim_obs"]
+        self, state: Float[Array, " dim_state"], obs_input: Float[Array, " dim_obs"]
     ) -> tfd.Distribution:
         """Emission distribution of the SSM at one time step.
         The argument 'obs_input' is not the covariate of the STS model, it is either an array
@@ -165,7 +165,7 @@ class StructuralTimeSeriesSSM(SSM):
         self,
         params: ParamsSTS,
         num_timesteps: int,
-        initial_state: Optional[Float[Array, "dim_states"]] = None,
+        initial_state: Optional[Float[Array, " dim_states"]] = None,
         initial_timestep: int = 0,
         covariates: Optional[Float[Array, "num_timesteps dim_covariates"]] = None,
         key: PRNGKey = jr.PRNGKey(0),
@@ -254,7 +254,9 @@ class StructuralTimeSeriesSSM(SSM):
         states = self._ssm_posterior_sample(ssm_params, obs_time_series, inputs, key1)
 
         # Sample predictive observations conditioned on posterior samples of latent states.
-        obs_sampler = lambda state, input, key: self.emission_distribution(state, input).sample(seed=key)
+        def obs_sampler(state, input, key):
+            return self.emission_distribution(state, input).sample(seed=key)
+
         keys = jr.split(key2, obs_time_series.shape[0])
 
         predictive_obs = vmap(obs_sampler)(states, inputs, keys)
@@ -352,9 +354,8 @@ class StructuralTimeSeriesSSM(SSM):
 
         # Forecast by sample from an STS model conditioned on the parameter and initialized
         # using the filtered posterior.
-        single_forecast = lambda initial_state, key: self.sample(
-            params, num_forecast_steps, initial_state, t0, forecast_covariates, key
-        )
+        def single_forecast(initial_state, key):
+            return self.sample(params, num_forecast_steps, initial_state, t0, forecast_covariates, key)
 
         forecast_mean, forecast_obs = vmap(single_forecast)(initial_states, jr.split(key, num_forecast_samples))
         return forecast_mean, forecast_obs
@@ -394,7 +395,10 @@ class StructuralTimeSeriesSSM(SSM):
     def _to_ssm_params(self, params):
         """Convert the STS model into the form of the corresponding SSM model."""
         get_trans_mat = partial(self.get_trans_mat, params)
-        get_sparse_cov = lambda t: self.cov_select_mat @ self.get_trans_cov(params, t) @ self.cov_select_mat.T
+
+        def get_sparse_cov(t):
+            return self.cov_select_mat @ self.get_trans_cov(params, t) @ self.cov_select_mat.T
+
         if self.obs_distribution == "Gaussian":
             return ParamsLGSSM(
                 initial=ParamsLGSSMInitial(mean=self.initial_mean, cov=self.initial_cov),

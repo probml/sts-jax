@@ -10,6 +10,7 @@ lint:
 
 check_lint:
 	pip install -r lint-requirements.txt
+	flake8 .
 	isort --check-only .
 	black --diff --check --fast .
 
