@@ -1,43 +1,45 @@
-from jax import lax, vmap
 from collections import OrderedDict
 from functools import partial
+from typing import Callable, List, Optional, Tuple
+
 import jax.numpy as jnp
 import jax.random as jr
 import jax.scipy as jsp
-from jaxtyping import Float, Array
+from dynamax.generalized_gaussian_ssm.inference import EKFIntegrals
+from dynamax.generalized_gaussian_ssm.inference import (
+    iterated_conditional_moments_gaussian_filter as cmgf_filt,
+)
+from dynamax.generalized_gaussian_ssm.inference import (
+    iterated_conditional_moments_gaussian_smoother as cmgf_smooth,
+)
+from dynamax.generalized_gaussian_ssm.models import ParamsGGSSM
+from dynamax.linear_gaussian_ssm import (
+    ParamsLGSSM,
+    ParamsLGSSMDynamics,
+    ParamsLGSSMEmissions,
+    ParamsLGSSMInitial,
+    lgssm_filter,
+    lgssm_posterior_sample,
+    lgssm_smoother,
+)
 from dynamax.ssm import SSM
 from dynamax.types import PRNGKey, Scalar
-
-from dynamax.generalized_gaussian_ssm.models import ParamsGGSSM
-from dynamax.generalized_gaussian_ssm.inference import (
-     EKFIntegrals,
-    iterated_conditional_moments_gaussian_filter as cmgf_filt,
-    iterated_conditional_moments_gaussian_smoother as cmgf_smooth
+from jax import lax, vmap
+from jaxtyping import Array, Float
+from tensorflow_probability.substrates.jax import distributions as tfd
+from tensorflow_probability.substrates.jax.distributions import (
+    MultivariateNormalFullCovariance as MVN,
 )
+from tensorflow_probability.substrates.jax.distributions import Poisson as Pois
 
-#from dynamax.generalized_gaussian_ssm import (
+from .sts_components import ParamPriorsSTS, ParamPropertiesSTS, ParamsSTS
+
+# from dynamax.generalized_gaussian_ssm import (
 #    ParamsGGSSM,
 #    EKFIntegrals,
 #    iterated_conditional_moments_gaussian_filter as cmgf_filt,
 #    iterated_conditional_moments_gaussian_smoother as cmgf_smooth
 #    )
-
-from dynamax.linear_gaussian_ssm import (
-    ParamsLGSSM,
-    ParamsLGSSMInitial,
-    ParamsLGSSMDynamics,
-    ParamsLGSSMEmissions,
-    lgssm_filter,
-    lgssm_smoother,
-    lgssm_posterior_sample
-    )
-from .sts_components import ParamsSTS, ParamPropertiesSTS, ParamPriorsSTS
-from tensorflow_probability.substrates.jax import distributions as tfd
-from tensorflow_probability.substrates.jax.distributions import (
-    MultivariateNormalFullCovariance as MVN,
-    Poisson as Pois
-    )
-from typing import List, Callable, Optional, Tuple
 
 
 class StructuralTimeSeriesSSM(SSM):
@@ -55,9 +57,9 @@ class StructuralTimeSeriesSSM(SSM):
         obs_mats: List,
         cov_select_mats: List,
         initial_distributions: List,
-        reg_func: Callable=None,
-        obs_distribution: str='Gaussian',
-        dim_covariates: int=0
+        reg_func: Callable = None,
+        obs_distribution: str = "Gaussian",
+        dim_covariates: int = 0,
     ) -> None:
         """
         Args:
@@ -96,10 +98,10 @@ class StructuralTimeSeriesSSM(SSM):
         self.obs_distribution = obs_distribution
 
         # Combine means and covariances of the initial state.
-        self.initial_mean = jnp.concatenate(
-            [init_pri.mode() for init_pri in initial_distributions.values()])
+        self.initial_mean = jnp.concatenate([init_pri.mode() for init_pri in initial_distributions.values()])
         self.initial_cov = jsp.linalg.block_diag(
-            *[init_pri.covariance() for init_pri in initial_distributions.values()])
+            *[init_pri.covariance() for init_pri in initial_distributions.values()]
+        )
 
         # Combine fixed observation matrices and the covariance selecting matrices.
         self.obs_mat = jnp.concatenate([*obs_mats.values()], axis=1)
@@ -127,17 +129,15 @@ class StructuralTimeSeriesSSM(SSM):
         return (self.dim_covariates,)
 
     def log_prior(self, params: ParamsSTS) -> Scalar:
-        """Log prior probability of parameters.
-        """
-        lp = 0.
+        """Log prior probability of parameters."""
+        lp = 0.0
         for c_name, c_priors in self.param_priors.items():
             for p_name, p_pri in c_priors.items():
                 lp += p_pri.log_prob(params[c_name][p_name])
         return lp
 
     def initial_distribution(self):
-        """Distribution of the initial state of the SSM form of the STS model.
-        """
+        """Distribution of the initial state of the SSM form of the STS model."""
         return MVN(self.initial_mean, self.initial_cov)
 
     def transition_distribution(self, state):
@@ -148,18 +148,16 @@ class StructuralTimeSeriesSSM(SSM):
         raise NotImplementedError
 
     def emission_distribution(
-        self,
-        state: Float[Array, "dim_state"],
-        obs_input: Float[Array, "dim_obs"]
+        self, state: Float[Array, "dim_state"], obs_input: Float[Array, "dim_obs"]
     ) -> tfd.Distribution:
         """Emission distribution of the SSM at one time step.
         The argument 'obs_input' is not the covariate of the STS model, it is either an array
         of 0's or the output of the regression component at the current time step, which will
         be added directly to the observation model.
         """
-        if self.obs_distribution == 'Gaussian':
-            return MVN(self.obs_mat @ state + obs_input, self.params['obs_model']['cov'])
-        elif self.obs_distribution == 'Poisson':
+        if self.obs_distribution == "Gaussian":
+            return MVN(self.obs_mat @ state + obs_input, self.params["obs_model"]["cov"])
+        elif self.obs_distribution == "Poisson":
             unc_rates = self.obs_mat @ state + obs_input
             return Pois(rate=self._emission_constrainer(unc_rates))
 
@@ -167,10 +165,10 @@ class StructuralTimeSeriesSSM(SSM):
         self,
         params: ParamsSTS,
         num_timesteps: int,
-        initial_state: Optional[Float[Array, "dim_states"]]=None,
-        initial_timestep: int=0,
-        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
-        key: PRNGKey=jr.PRNGKey(0)
+        initial_state: Optional[Float[Array, "dim_states"]] = None,
+        initial_timestep: int = 0,
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]] = None,
+        key: PRNGKey = jr.PRNGKey(0),
     ) -> Tuple[Float[Array, "num_timesteps dim_obs"], Float[Array, "num_timesteps dim_obs"]]:
         """Sample a sequence of latent states and emissions with given parameters of the STS.
 
@@ -199,14 +197,16 @@ class StructuralTimeSeriesSSM(SSM):
             key1, key2 = jr.split(key, 2)
             # The latent state of the next time point.
             next_state = get_trans_mat(t) @ curr_state + self.cov_select_mat @ MVN(
-                jnp.zeros(self.dim_comp), get_trans_cov(t)).sample(seed=key1)
+                jnp.zeros(self.dim_comp), get_trans_cov(t)
+            ).sample(seed=key1)
             curr_obs = self.emission_distribution(curr_state, input).sample(seed=key2)
             return next_state, (curr_state, curr_obs)
 
         # Sample the following emissions and states.
         keys = jr.split(key2, num_timesteps)
         _, (states, sample_obs) = lax.scan(
-            _step, initial_state, (keys, inputs, initial_timestep+jnp.arange(num_timesteps)))
+            _step, initial_state, (keys, inputs, initial_timestep + jnp.arange(num_timesteps))
+        )
         sample_mean = self._emission_constrainer(states @ self.obs_mat.T + inputs)
         return sample_mean, sample_obs
 
@@ -214,10 +214,9 @@ class StructuralTimeSeriesSSM(SSM):
         self,
         params: ParamsSTS,
         obs_time_series: Float[Array, "num_timesteps dim_obs"],
-        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]] = None,
     ) -> Scalar:
-        """Compute marginal log likelihood of the observed time series given model parameters.
-        """
+        """Compute marginal log likelihood of the observed time series given model parameters."""
         if covariates is not None:
             # If there is a regression component, set the inputs of the emission model
             # of the SSM as the fitted value of the regression component.
@@ -227,16 +226,15 @@ class StructuralTimeSeriesSSM(SSM):
 
         # Convert the model to SSM and perform filtering.
         ssm_params = self._to_ssm_params(params)
-        filtered_posterior = self._ssm_filter(
-            params=ssm_params, emissions=obs_time_series, inputs=inputs)
+        filtered_posterior = self._ssm_filter(params=ssm_params, emissions=obs_time_series, inputs=inputs)
         return filtered_posterior.marginal_loglik
 
     def posterior_sample(
         self,
         params: ParamsSTS,
         obs_time_series: Float[Array, "num_timesteps dim_obs"],
-        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
-        key: PRNGKey=jr.PRNGKey(0)
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]] = None,
+        key: PRNGKey = jr.PRNGKey(0),
     ) -> Tuple[Float[Array, "num_timesteps dim_obs"], Float[Array, "num_timesteps dim_obs"]]:
         """Sample latent states from the posterior distribution, as well as the predictive
         observations, given model parameters.
@@ -256,8 +254,7 @@ class StructuralTimeSeriesSSM(SSM):
         states = self._ssm_posterior_sample(ssm_params, obs_time_series, inputs, key1)
 
         # Sample predictive observations conditioned on posterior samples of latent states.
-        obs_sampler = lambda state, input, key:\
-            self.emission_distribution(state, input).sample(seed=key)
+        obs_sampler = lambda state, input, key: self.emission_distribution(state, input).sample(seed=key)
         keys = jr.split(key2, obs_time_series.shape[0])
 
         predictive_obs = vmap(obs_sampler)(states, inputs, keys)
@@ -268,10 +265,10 @@ class StructuralTimeSeriesSSM(SSM):
         self,
         params: ParamsSTS,
         obs_time_series: Float[Array, "num_timesteps dim_obs"],
-        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None
+        covariates: Optional[Float[Array, "num_timesteps dim_covariates"]] = None,
     ) -> OrderedDict:
         """Decompose the STS model into components and return the means and variances
-           of the marginal posterior of each component.
+        of the marginal posterior of each component.
         """
         component_pos = OrderedDict()
         if covariates is not None:
@@ -280,8 +277,9 @@ class StructuralTimeSeriesSSM(SSM):
             inputs = self.regression(params[self.reg_name], covariates)
             # Add the component corresponding to the regression component, which has no variance.
             component_pos[self.reg_name] = {
-                'pos_mean': inputs,
-                'pos_cov': jnp.zeros((*obs_time_series.shape, self.dim_obs))}
+                "pos_mean": inputs,
+                "pos_cov": jnp.zeros((*obs_time_series.shape, self.dim_obs)),
+            }
         else:
             inputs = jnp.zeros(obs_time_series.shape)
 
@@ -298,17 +296,17 @@ class StructuralTimeSeriesSSM(SSM):
         for c, obs_mat in self.component_obs_mats.items():
             # Extract posterior mean and covariances of each component from the latent state.
             c_dim = obs_mat.shape[1]
-            c_mean = mu_pos[:, _loc:_loc+c_dim]
-            c_cov = var_pos[:, _loc:_loc+c_dim, _loc:_loc+c_dim]
+            c_mean = mu_pos[:, _loc : _loc + c_dim]
+            c_cov = var_pos[:, _loc : _loc + c_dim, _loc : _loc + c_dim]
             # Posterior emission of the single component.
             c_obs_mean_unc = vmap(jnp.matmul, (None, 0))(obs_mat, c_mean)
             c_obs_mean = self._emission_constrainer(c_obs_mean_unc)
-            if self.obs_distribution == 'Gaussian':
+            if self.obs_distribution == "Gaussian":
                 c_obs_cov = vmap(lambda s, m: m @ s @ m.T, (0, None))(c_cov, obs_mat)
-            elif self.obs_distribution == 'Poisson':
+            elif self.obs_distribution == "Poisson":
                 # Set the covariance to be 0 if the distribution of the observation is Poisson.
                 c_obs_cov = jnp.zeros((*obs_time_series.shape, self.dim_obs))
-            component_pos[c] = {'pos_mean': c_obs_mean, 'pos_cov': c_obs_cov}
+            component_pos[c] = {"pos_mean": c_obs_mean, "pos_cov": c_obs_cov}
             _loc += c_dim
         return component_pos
 
@@ -317,14 +315,15 @@ class StructuralTimeSeriesSSM(SSM):
         params: ParamsSTS,
         obs_time_series: Float[Array, "num_timesteps dim_obs"],
         num_forecast_steps: int,
-        num_forecast_samples: int=100,
-        past_covariates: Optional[Float[Array, "num_timesteps dim_covariates"]]=None,
-        forecast_covariates: Optional[Float[Array, "num_forecast_steps dim_covariates"]]=None,
-        key: PRNGKey=jr.PRNGKey(0)
-    ) -> Tuple[Float[Array, "num_forecast_samples num_forecast_steps dim_obs"],
-               Float[Array, "num_forecast_samples num_forecast_steps dim_obs"]]:
-        """Forecast the time series.
-        """
+        num_forecast_samples: int = 100,
+        past_covariates: Optional[Float[Array, "num_timesteps dim_covariates"]] = None,
+        forecast_covariates: Optional[Float[Array, "num_forecast_steps dim_covariates"]] = None,
+        key: PRNGKey = jr.PRNGKey(0),
+    ) -> Tuple[
+        Float[Array, "num_forecast_samples num_forecast_steps dim_obs"],
+        Float[Array, "num_forecast_samples num_forecast_steps dim_obs"],
+    ]:
+        """Forecast the time series."""
         if forecast_covariates is not None:
             # If there is a regression component, set the inputs of the emission model
             # of the SSM as the fitted value of the regression component.
@@ -338,43 +337,39 @@ class StructuralTimeSeriesSSM(SSM):
         get_trans_cov = partial(self.get_trans_cov, params)
 
         # Filtering the observed time series to initialize the forecast
-        filtered_posterior = self._ssm_filter(
-            params=ssm_params, emissions=obs_time_series, inputs=past_inputs)
+        filtered_posterior = self._ssm_filter(params=ssm_params, emissions=obs_time_series, inputs=past_inputs)
         filtered_mean = filtered_posterior.filtered_means
         filtered_cov = filtered_posterior.filtered_covariances
 
         # The first time step of forecast.
-        t0 = obs_time_series.shape[0]-1
+        t0 = obs_time_series.shape[0] - 1
         initial_state_mean = get_trans_mat(t0) @ filtered_mean[-1]
-        initial_state_cov = get_trans_mat(t0) @ filtered_cov[-1] @ get_trans_mat(t0).T\
+        initial_state_cov = (
+            get_trans_mat(t0) @ filtered_cov[-1] @ get_trans_mat(t0).T
             + self.cov_select_mat @ get_trans_cov(t0) @ self.cov_select_mat.T
-        initial_states = MVN(initial_state_mean,
-                             initial_state_cov).sample(num_forecast_samples, seed=key)
+        )
+        initial_states = MVN(initial_state_mean, initial_state_cov).sample(num_forecast_samples, seed=key)
 
         # Forecast by sample from an STS model conditioned on the parameter and initialized
         # using the filtered posterior.
         single_forecast = lambda initial_state, key: self.sample(
-            params, num_forecast_steps, initial_state, t0, forecast_covariates, key)
+            params, num_forecast_steps, initial_state, t0, forecast_covariates, key
+        )
 
-        forecast_mean, forecast_obs = vmap(single_forecast)(
-            initial_states, jr.split(key, num_forecast_samples))
+        forecast_mean, forecast_obs = vmap(single_forecast)(initial_states, jr.split(key, num_forecast_samples))
         return forecast_mean, forecast_obs
 
     def one_step_predict(self, params, obs_time_series, covariates=None):
         """One step forward prediction.
-           This is a by product of the Kalman filter.
-           A general method of one-step-forward prediction is to be added to the class
-           dynamax.LinearGaussianSSM
+        This is a by product of the Kalman filter.
+        A general method of one-step-forward prediction is to be added to the class
+        dynamax.LinearGaussianSSM
         """
         raise NotImplementedError
 
-    def get_trans_mat(
-        self,
-        params: ParamsSTS,
-        t: int
-    ) -> Float[Array, "dim_state dim_state"]:
+    def get_trans_mat(self, params: ParamsSTS, t: int) -> Float[Array, "dim_state dim_state"]:
         """Evaluate the transition matrix of the latent state at time step t,
-           conditioned on parameters of the model.
+        conditioned on parameters of the model.
         """
         trans_mat = []
         for c_name in self.latent_comp_names:
@@ -384,13 +379,9 @@ class StructuralTimeSeriesSSM(SSM):
             trans_mat.append(c_trans_mat)
         return jsp.linalg.block_diag(*trans_mat)
 
-    def get_trans_cov(
-        self,
-        params: ParamsSTS,
-        t: int
-    ) -> Float[Array, "order_state order_state"]:
+    def get_trans_cov(self, params: ParamsSTS, t: int) -> Float[Array, "order_state order_state"]:
         """Evaluate the covariance of the latent dynamics at time step t,
-           conditioned on parameters of the model.
+        conditioned on parameters of the model.
         """
         trans_cov = []
         for c_name in self.latent_comp_names:
@@ -401,25 +392,26 @@ class StructuralTimeSeriesSSM(SSM):
         return jsp.linalg.block_diag(*trans_cov)
 
     def _to_ssm_params(self, params):
-        """Convert the STS model into the form of the corresponding SSM model.
-        """
+        """Convert the STS model into the form of the corresponding SSM model."""
         get_trans_mat = partial(self.get_trans_mat, params)
-        get_sparse_cov = lambda t:\
-            self.cov_select_mat @ self.get_trans_cov(params, t) @ self.cov_select_mat.T
-        if self.obs_distribution == 'Gaussian':
+        get_sparse_cov = lambda t: self.cov_select_mat @ self.get_trans_cov(params, t) @ self.cov_select_mat.T
+        if self.obs_distribution == "Gaussian":
             return ParamsLGSSM(
-                initial=ParamsLGSSMInitial(mean=self.initial_mean,
-                                           cov=self.initial_cov),
-                dynamics=ParamsLGSSMDynamics(weights=get_trans_mat,
-                                             bias=jnp.zeros(self.dim_state),
-                                             input_weights=jnp.zeros((self.dim_state, 1)),
-                                             cov=get_sparse_cov),
-                emissions=ParamsLGSSMEmissions(weights=self.obs_mat,
-                                               bias=jnp.zeros(self.dim_obs),
-                                               input_weights=jnp.eye(self.dim_obs),
-                                               cov=params['obs_model']['cov'])
-                )
-        elif self.obs_distribution == 'Poisson':
+                initial=ParamsLGSSMInitial(mean=self.initial_mean, cov=self.initial_cov),
+                dynamics=ParamsLGSSMDynamics(
+                    weights=get_trans_mat,
+                    bias=jnp.zeros(self.dim_state),
+                    input_weights=jnp.zeros((self.dim_state, 1)),
+                    cov=get_sparse_cov,
+                ),
+                emissions=ParamsLGSSMEmissions(
+                    weights=self.obs_mat,
+                    bias=jnp.zeros(self.dim_obs),
+                    input_weights=jnp.eye(self.dim_obs),
+                    cov=params["obs_model"]["cov"],
+                ),
+            )
+        elif self.obs_distribution == "Poisson":
             # Current formulation of the dynamics function cannot depends on t
             trans_mat = get_trans_mat(0)
             sparse_cov = get_sparse_cov(0)
@@ -430,47 +422,37 @@ class StructuralTimeSeriesSSM(SSM):
                 dynamics_covariance=sparse_cov,
                 emission_mean_function=lambda z, u: self._emission_constrainer(self.obs_mat @ z + u),
                 emission_cov_function=lambda z, u: jnp.diag(self._emission_constrainer(self.obs_mat @ z)),
-                emission_dist=lambda mu, Sigma: Pois(rate=mu)
-                )
+                emission_dist=lambda mu, Sigma: Pois(rate=mu),
+            )
 
     def _ssm_filter(self, params, emissions, inputs):
-        """The filter of the corresponding SSM model.
-        """
-        if self.obs_distribution == 'Gaussian':
-            return lgssm_filter(params=params,
-                                emissions=emissions,
-                                inputs=inputs)
-        elif self.obs_distribution == 'Poisson':
-            return cmgf_filt(model_params=params,
-                             inf_params=EKFIntegrals(),
-                             emissions=emissions,
-                             inputs=inputs,
-                             num_iter=2)
+        """The filter of the corresponding SSM model."""
+        if self.obs_distribution == "Gaussian":
+            return lgssm_filter(params=params, emissions=emissions, inputs=inputs)
+        elif self.obs_distribution == "Poisson":
+            return cmgf_filt(
+                model_params=params, inf_params=EKFIntegrals(), emissions=emissions, inputs=inputs, num_iter=2
+            )
 
     def _ssm_smoother(self, params, emissions, inputs):
-        """The smoother of the corresponding SSM model
-        """
-        if self.obs_distribution == 'Gaussian':
+        """The smoother of the corresponding SSM model"""
+        if self.obs_distribution == "Gaussian":
             return lgssm_smoother(params=params, emissions=emissions, inputs=inputs)
-        elif self.obs_distribution == 'Poisson':
-            return cmgf_smooth(params=params, inf_params=EKFIntegrals(), emissions=emissions,
-                               inputs=inputs, num_iter=2)
+        elif self.obs_distribution == "Poisson":
+            return cmgf_smooth(params=params, inf_params=EKFIntegrals(), emissions=emissions, inputs=inputs, num_iter=2)
 
     def _ssm_posterior_sample(self, ssm_params, obs_time_series, inputs, key):
-        """The posterior sampler of the corresponding SSM model
-        """
-        if self.obs_distribution == 'Gaussian':
-            return lgssm_posterior_sample(
-                key=key, params=ssm_params, emissions=obs_time_series, inputs=inputs)
-        elif self.obs_distribution == 'Poisson':
+        """The posterior sampler of the corresponding SSM model"""
+        if self.obs_distribution == "Gaussian":
+            return lgssm_posterior_sample(key=key, params=ssm_params, emissions=obs_time_series, inputs=inputs)
+        elif self.obs_distribution == "Poisson":
             # Currently the posterior_sample for STS model with Poisson likelihood
             # simply returns the filtered means.
             return self._ssm_filter(ssm_params, obs_time_series, inputs).filtered_means
 
     def _emission_constrainer(self, emission):
-        """Transform the state into the possibly constrained space.
-        """
-        if self.obs_distribution == 'Gaussian':
+        """Transform the state into the possibly constrained space."""
+        if self.obs_distribution == "Gaussian":
             return emission
-        elif self.obs_distribution == 'Poisson':
+        elif self.obs_distribution == "Poisson":
             return jnp.exp(emission)
