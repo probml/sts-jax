@@ -62,7 +62,8 @@ class CausalImpact:
         ax3.axvline(x=self.intervention_time, linestyle="dashed", color="gray", lw=2)
         ax3.set_title("Cumulative causal impact")
 
-        plt.show()
+        return fig, ax1, ax2, ax3
+        #plt.show()
 
     def print_summary(self) -> None:
         """Print the summary of the inferred effect as a table."""
