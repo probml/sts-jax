@@ -1,5 +1,6 @@
 import jax.numpy as jnp
 import jax.random as jr
+import pytest
 import tensorflow as tf
 import tensorflow_probability as tfp
 from jax import lax
@@ -49,7 +50,7 @@ def _build_models(time_steps, key):
 
     # Set the parameters to the parameters learned by the tfp module and fix the parameters.
     tfp_vi_posterior = tfp.sts.build_factored_surrogate_posterior(tfp_model)
-    elbo_loss_curve = tfp.vi.fit_surrogate_posterior(
+    tfp.vi.fit_surrogate_posterior(
         target_log_prob_fn=tfp_model.joint_distribution(obs_time_series).log_prob,
         surrogate_posterior=tfp_vi_posterior,
         optimizer=tf.optimizers.Adam(learning_rate=0.1),
@@ -71,29 +72,21 @@ def test_autoregress(time_steps=150, key=jr.PRNGKey(3)):
     tfp_model, tfp_params, dynamax_model, dynamax_params, obs_time_series, vi_dists = _build_models(time_steps, key)
 
     # Fit and forecast with the tfp module.
-    # Not use tfp.sts.decmopose_by_component() since its output series is centered at 0.
+    # Not use tfp.sts.decompose_by_component() since its output series is centered at 0.
     masked_time_series = tfp.sts.MaskedTimeSeries(
         time_series=obs_time_series, is_missing=tf.math.is_nan(obs_time_series)
     )
     tfp_posterior = tfp.sts.impute_missing_values(
         tfp_model, masked_time_series, tfp_params, include_observation_noise=False
     )
-    tfp_forecasts = tfp.sts.forecast(
-        tfp_model, obs_time_series, parameter_samples=tfp_params, num_steps_forecast=50, include_observation_noise=True
-    )
+
     tfp_posterior_mean = jnp.array(tfp_posterior.mean()).squeeze()
     tfp_posterior_scale = jnp.array(jnp.array(tfp_posterior.stddev())).squeeze()
-    tfp_forecast_mean = jnp.array(tfp_forecasts.mean()).squeeze()
-    tfp_forecast_scale = jnp.array(tfp_forecasts.stddev()).squeeze()
 
     # Fit and forecast with dynamax
     dynamax_posterior = dynamax_model.decompose_by_component(dynamax_params, obs_time_series)
     dynamax_posterior_mean = dynamax_model._uncenter_obs(dynamax_posterior["ar"]["pos_mean"]).squeeze()
     dynamax_posterior_cov = dynamax_posterior["ar"]["pos_cov"].squeeze()
-
-    dynamax_forecast = dynamax_model.forecast(dynamax_params, obs_time_series, num_forecast_steps=50)[1]
-    dynamax_forecast_mean = jnp.concatenate(dynamax_forecast).mean(axis=0).squeeze()
-    dynamax_forecast_cov = jnp.concatenate(dynamax_forecast).var(axis=0).squeeze()
 
     # Compare posterior inference by tfp and dynamax.
     # In comparing the smoothed posterior, we omit the first 5 time steps,
@@ -103,8 +96,35 @@ def test_autoregress(time_steps=150, key=jr.PRNGKey(3)):
     len_step = jnp.abs(tfp_posterior_mean[1:] - tfp_posterior_mean[:-1]).mean()
     assert jnp.allclose(tfp_posterior_mean[5:], dynamax_posterior_mean[5:], atol=len_step)
     assert jnp.allclose(tfp_posterior_scale[5:], jnp.sqrt(dynamax_posterior_cov)[5:], rtol=1e-2)
-    # Compoare forecast by tfp and dynamax.
-    # (Skipped because the forecast mean and variances are now computed as sample mean and variance,
-    # for dynamax model)
-    # assert jnp.allclose(tfp_forecast_mean, dynamax_forecast_mean, atol=0.5*len_step)
-    # assert jnp.allclose(tfp_forecast_scale, jnp.sqrt(dynamax_forecast_cov), rtol=5e-2)
+
+
+@pytest.mark.skip(
+    reason="Skipped because the forecast mean and variances are now computed as sample mean and variance, for dynamax model"
+)
+def test_autoregress_forecast(time_steps=150, key=jr.PRNGKey(3)):
+    tfp_model, tfp_params, dynamax_model, dynamax_params, obs_time_series, vi_dists = _build_models(time_steps, key)
+
+    masked_time_series = tfp.sts.MaskedTimeSeries(
+        time_series=obs_time_series, is_missing=tf.math.is_nan(obs_time_series)
+    )
+
+    tfp_posterior = tfp.sts.impute_missing_values(
+        tfp_model, masked_time_series, tfp_params, include_observation_noise=False
+    )
+
+    tfp_posterior_mean = jnp.array(tfp_posterior.mean()).squeeze()
+
+    tfp_forecasts = tfp.sts.forecast(
+        tfp_model, obs_time_series, parameter_samples=tfp_params, num_steps_forecast=50, include_observation_noise=True
+    )
+
+    tfp_forecast_mean = jnp.array(tfp_forecasts.mean()).squeeze()
+    tfp_forecast_scale = jnp.array(tfp_forecasts.stddev()).squeeze()
+
+    dynamax_forecast = dynamax_model.forecast(dynamax_params, obs_time_series, num_forecast_steps=50)[1]
+    dynamax_forecast_mean = jnp.concatenate(dynamax_forecast).mean(axis=0).squeeze()
+    dynamax_forecast_cov = jnp.concatenate(dynamax_forecast).var(axis=0).squeeze()
+    # Compare forecast by tfp and dynamax.
+    len_step = jnp.abs(tfp_posterior_mean[1:] - tfp_posterior_mean[:-1]).mean()
+    assert jnp.allclose(tfp_forecast_mean, dynamax_forecast_mean, atol=0.5 * len_step)
+    assert jnp.allclose(tfp_forecast_scale, jnp.sqrt(dynamax_forecast_cov), rtol=5e-2)

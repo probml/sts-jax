@@ -34,11 +34,13 @@ def fit_vi(
     K: int = 1,
     key: PRNGKey = jr.PRNGKey(0),
     num_step_iters: int = 50,
-) -> Tuple[ParamsSTS, Float[Array, "num_samples"]]:
-    """
+) -> Tuple[ParamsSTS, Float[Array, " num_samples"]]:
+    r"""
     ADVI approximate the posterior distribtuion p of unconstrained global parameters
     with factorized multivatriate normal distribution:
+    $$
     q = \prod_{k=1}^{K} q_k(mu_k, sigma_k),
+    $$
     where K is dimension of p.
 
     The hyper-parameters of q to be optimized over are (mu_k, log_sigma_k))_{k=1}^{K}.
@@ -93,7 +95,8 @@ def fit_vi(
         ).sum()
         return log_probs - log_q
 
-    loss_fn = lambda vi_hyp, key: -jnp.mean(vmap(partial(elbo, vi_hyp))(jr.split(key, K)))
+    def loss_fn(vi_hyp, key):
+        return -jnp.mean(vmap(partial(elbo, vi_hyp))(jr.split(key, K)))
 
     # Fit
     curr_vi_mus = initial_unc_params
@@ -118,12 +121,14 @@ def fit_vi(
     (vi_hyp_fitted, opt_state), losses = lax.scan(train_step, initial_carry, jr.split(key1, num_step_iters))
 
     # Sample from the learned approximate posterior q
-    vi_sample = lambda key: from_unconstrained(
-        tree_map(
-            lambda mu, s: mu + jnp.exp(s) * jr.normal(key, s.shape), vi_hyp_fitted["mu"], vi_hyp_fitted["log_sig"]
-        ),
-        param_props,
-    )
+    def vi_sample(key):
+        return from_unconstrained(
+            tree_map(
+                lambda mu, s: mu + jnp.exp(s) * jr.normal(key, s.shape), vi_hyp_fitted["mu"], vi_hyp_fitted["log_sig"]
+            ),
+            param_props,
+        )
+
     samples = vmap(vi_sample)(jr.split(key2, num_samples))
 
     return samples, losses
@@ -139,7 +144,7 @@ def fit_hmc(
     key: PRNGKey = jr.PRNGKey(0),
     warmup_steps: int = 100,
     verbose: bool = True,
-) -> Tuple[ParamsSTS, Float[Array, "num_samples"]]:
+) -> Tuple[ParamsSTS, Float[Array, " num_samples"]]:
     """Sample parameters of the model using HMC."""
     # Make sure the emissions and covariates have batch dimensions
     batch_emissions = ensure_array_has_batch_dim(emissions, model.emission_shape)

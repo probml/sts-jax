@@ -111,7 +111,7 @@ class STSComponent(ABC):
         self.param_priors = OrderedDict()
 
     @abstractmethod
-    def initialize_params(self, obs_initial: Float[Array, "dim_obs"], obs_scale: Float[Array, "dim_obs"]) -> None:
+    def initialize_params(self, obs_initial: Float[Array, " dim_obs"], obs_scale: Float[Array, " dim_obs"]) -> None:
         r"""Initialize parameters of the component given statistics of the observed time series.
 
         Args:
@@ -303,7 +303,7 @@ class LocalLinearTrend(STSComponent):
         # Covariance selection matrix.
         self._cov_select_mat = jnp.eye(2 * dim_obs)
 
-    def initialize_params(self, obs_initial: Float[Array, "dim_obs"], obs_scale: Float[Array, "dim_obs"]) -> None:
+    def initialize_params(self, obs_initial: Float[Array, " dim_obs"], obs_scale: Float[Array, " dim_obs"]) -> None:
         dim_obs = len(obs_initial)
 
         # Initialize the distribution of the initial state.
@@ -409,7 +409,7 @@ class Autoregressive(STSComponent):
         # Covariance selection matrix.
         self._cov_select_mat = jnp.kron(jnp.eye(order)[:, 0], jnp.eye(dim_obs))
 
-    def initialize_params(self, obs_initial: Float[Array, "dim_obs"], obs_scale: Float[Array, "dim_obs"]) -> None:
+    def initialize_params(self, obs_initial: Float[Array, " dim_obs"], obs_scale: Float[Array, " dim_obs"]) -> None:
         dim_obs = len(obs_initial)
 
         # Initialize the distribution of the initial state.
@@ -521,7 +521,7 @@ class SeasonalDummy(STSComponent):
         # Covariance selection matrix.
         self._cov_select_mat = jnp.kron(jnp.eye(_c)[:, [0]], jnp.eye(dim_obs))
 
-    def initialize_params(self, obs_initial: Float[Array, "dim_obs"], obs_scale: Float[Array, "dim_obs"]) -> None:
+    def initialize_params(self, obs_initial: Float[Array, " dim_obs"], obs_scale: Float[Array, " dim_obs"]) -> None:
         # Initialize the distribution of the initial state.
         dim_obs = len(obs_initial)
         # if self.initial_effect_pri is not None:
@@ -547,7 +547,7 @@ class SeasonalDummy(STSComponent):
 
     def get_trans_mat(
         self, params: ParamsSTSComponent, t: int
-    ) -> Float[Array, "(num_seasons-1)*dim_obs (num_seasons-1)*dim_obs"]:
+    ) -> Float[Array, " (num_seasons-1)*dim_obs (num_seasons-1)*dim_obs"]:
         return lax.cond(
             t % self.steps_per_season == 0,
             lambda: self._trans_mat,
@@ -562,7 +562,7 @@ class SeasonalDummy(STSComponent):
         )
 
     @property
-    def obs_mat(self) -> Float[Array, "dim_obs (num_seasons-1)*dim_obs"]:
+    def obs_mat(self) -> Float[Array, " dim_obs (num_seasons-1)*dim_obs"]:
         return self._obs_mat
 
     @property
@@ -658,7 +658,7 @@ class SeasonalTrig(STSComponent):
         # Covariance selection matrix.
         self._cov_select_mat = jnp.eye(_c * dim_obs)
 
-    def initialize_params(self, obs_initial: Float[Array, "dim_obs"], obs_scale: Float[Array, "dim_obs"]) -> None:
+    def initialize_params(self, obs_initial: Float[Array, " dim_obs"], obs_scale: Float[Array, " dim_obs"]) -> None:
         # Initialize the distribution of the initial state.
         dim_obs = len(obs_initial)
         # if self.initial_effect_pri is not None:
@@ -684,7 +684,7 @@ class SeasonalTrig(STSComponent):
 
     def get_trans_mat(
         self, params: ParamsSTSComponent, t: int
-    ) -> Float[Array, "(num_seasons-1)*dim_obs (num_seasons-1)*dim_obs"]:
+    ) -> Float[Array, " (num_seasons-1)*dim_obs (num_seasons-1)*dim_obs"]:
         return lax.cond(
             t % self.steps_per_season == 0,
             lambda: self._trans_mat,
@@ -693,7 +693,7 @@ class SeasonalTrig(STSComponent):
 
     def get_trans_cov(
         self, params: ParamsSTSComponent, t: int
-    ) -> Float[Array, "(num_seasons-1)*dim_obs (num_seasons-1)*dim_obs"]:
+    ) -> Float[Array, " (num_seasons-1)*dim_obs (num_seasons-1)*dim_obs"]:
         return lax.cond(
             t % self.steps_per_season == 0,
             lambda: jnp.kron(jnp.eye(self.num_seasons - 1), params["drift_cov"]),
@@ -701,11 +701,11 @@ class SeasonalTrig(STSComponent):
         )
 
     @property
-    def obs_mat(self) -> Float[Array, "dim_obs (num_seassons-1)*dim_obs"]:
+    def obs_mat(self) -> Float[Array, " dim_obs (num_seassons-1)*dim_obs"]:
         return self._obs_mat
 
     @property
-    def cov_select_mat(self) -> Float[Array, "(num_seasons-1)*dim_obs (num_seasons-1)*dim_obs"]:
+    def cov_select_mat(self) -> Float[Array, " (num_seasons-1)*dim_obs (num_seasons-1)*dim_obs"]:
         return self._cov_select_mat
 
 
@@ -785,7 +785,7 @@ class Cycle(STSComponent):
         # Covariance selection matrix.
         self._cov_select_mat = jnp.kron(jnp.array([[1], [0]]), jnp.eye(dim_obs))
 
-    def initialize_params(self, obs_initial: Float[Array, "dim_obs"], obs_scale: Float[Array, "dim_obs"]) -> None:
+    def initialize_params(self, obs_initial: Float[Array, " dim_obs"], obs_scale: Float[Array, " dim_obs"]) -> None:
         # Initialize the distribution of the initial state.
         dim_obs = len(obs_initial)
         # if self.initial_effect_pri is not None:

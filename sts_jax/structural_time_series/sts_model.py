@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Callable, List, NamedTuple, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import jax.numpy as jnp
 import jax.random as jr
@@ -15,7 +15,7 @@ from jaxtyping import Array, Float
 from tensorflow_probability.substrates.jax import distributions as tfd
 
 from .learning import fit_hmc, fit_vi
-from .sts_components import *
+from .sts_components import ParamPropertiesSTS, ParamsSTS, STSComponent, STSRegression
 from .sts_ssm import StructuralTimeSeriesSSM
 
 
@@ -255,7 +255,7 @@ class StructuralTimeSeries:
         param_props: ParamPropertiesSTS = None,
         optimizer: optax.GradientTransformation = optax.adam(1e-1),
         key: PRNGKey = jr.PRNGKey(0),
-    ) -> Tuple[ParamsSTS, Float[Array, "num_steps"]]:
+    ) -> Tuple[ParamsSTS, Float[Array, " num_steps"]]:
         """Perform maximum likelihood estimate of parameters of the STS model."""
         obs_centered = self._center_obs(obs_time_series)
         sts_ssm = self.as_ssm()
