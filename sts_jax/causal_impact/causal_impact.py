@@ -63,7 +63,6 @@ class CausalImpact:
         ax3.set_title("Cumulative causal impact")
 
         return fig, ax1, ax2, ax3
-        #plt.show()
 
     def print_summary(self) -> None:
         """Print the summary of the inferred effect as a table."""
