@@ -16,7 +16,6 @@ from tensorflow_probability.substrates.jax import distributions as tfd
 
 from .learning import fit_hmc, fit_vi
 from .sts_components import *
-# from .sts_components import ParamPropertiesSTS, ParamsSTS, STSComponent, STSRegression
 from .sts_ssm import StructuralTimeSeriesSSM
 
 
