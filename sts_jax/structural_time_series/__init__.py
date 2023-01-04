@@ -8,7 +8,7 @@ from sts_jax.structural_time_series.sts_components import (
 )
 from sts_jax.structural_time_series.sts_model import StructuralTimeSeries
 
-_allowed_symbols = [
+__all__ = [
     "Autoregressive",
     "Cycle",
     "LinearRegression",
