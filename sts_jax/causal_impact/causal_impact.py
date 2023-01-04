@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from dynamax.types import PRNGKey
 from jaxtyping import Array, Float
 
-import sts_jax.structural_time_series.sts_model as sts
+import sts_jax.structural_time_series as sts
 
 
 class CausalImpact:
@@ -63,7 +63,6 @@ class CausalImpact:
         ax3.set_title("Cumulative causal impact")
 
         return fig, ax1, ax2, ax3
-        #plt.show()
 
     def print_summary(self) -> None:
         """Print the summary of the inferred effect as a table."""
