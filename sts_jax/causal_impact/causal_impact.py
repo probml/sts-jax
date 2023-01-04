@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from dynamax.types import PRNGKey
 from jaxtyping import Array, Float
 
-import sts_jax.structural_time_series.sts_model as sts
+import sts_jax.structural_time_series as sts
 
 
 class CausalImpact:
