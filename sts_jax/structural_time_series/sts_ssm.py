@@ -43,7 +43,7 @@ from .sts_components import ParamPriorsSTS, ParamPropertiesSTS, ParamsSTS
 
 
 class StructuralTimeSeriesSSM(SSM):
-    """Formulate the structual time series(STS) model into a LinearSSM model,
+    """Formulate the structural time series(STS) model into a LinearSSM model,
     which always have block-diagonal dynamics covariance matrix and fixed transition matrices.
     """
 
@@ -67,7 +67,7 @@ class StructuralTimeSeriesSSM(SSM):
                 parameters of one component.
             param_props: properties of parameters of the STS model, having same tree structure
                 with 'params', each leaf node is a instance of 'ParameterProperties' for the
-                parameter in the conrresponding leaf node of 'params'.
+                parameter in the corresponding leaf node of 'params'.
             param_priors: priors of parameters of the STS model, having same tree structure
                 with 'params', each leaf node is a prior distribution for the parameter in the
                 corresponding leaf node of 'params'.
@@ -143,7 +143,7 @@ class StructuralTimeSeriesSSM(SSM):
     def transition_distribution(self, state):
         """This is a must-have method of SSM.
         Not implemented here because tfp.distribution does not support multivariate normal
-        distribution with singular convariance matrix.
+        distribution with singular covariance matrix.
         """
         raise NotImplementedError
 
