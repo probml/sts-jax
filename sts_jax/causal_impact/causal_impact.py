@@ -43,7 +43,7 @@ class CausalImpact:
         x = jnp.arange(self.time_series.shape[0])
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(9, 6), sharex=True, layout="constrained")
 
-        # Plot the original obvervation and the counterfactual predict
+        # Plot the original observation and the counterfactual predict
         ax1.plot(x, self.time_series, color="black", lw=2, label="Observation")
         ax1.plot(x, self.predict_point, linestyle="dashed", color="blue", lw=2, label="Prediction")
         ax1.fill_between(x, self.predict_interval[0], self.predict_interval[1], color="blue", alpha=0.2)
@@ -90,7 +90,7 @@ class CausalImpact:
             f'{f"[{pred_l.cumulative:.2f}, {pred_r.cumulative:.2f}]": ^{ncol3}}'
         )
 
-        # Summary statistics of the absolute post-invervention effect
+        # Summary statistics of the absolute post-intervention effect
         abs_e = self.summary["abs_effect"]
         abs_sd = self.summary["abs_effect_sd"]
         abs_l = self.summary["abs_effect_lower"]
@@ -202,7 +202,7 @@ def causal_impact(
     # Fit the STS model, sample from the past and forecast.
     # Model fitting
     params_posterior_samples, _ = sts_model.fit_hmc(num_samples, time_series_pre, covariates=covariates_pre, key=key1)
-    # Sample observations from the posterior predictive sample given paramters of the STS model.
+    # Sample observations from the posterior predictive sample given parameters of the STS model.
     posterior_sample_means, posterior_samples = sts_model.posterior_sample(
         params_posterior_samples, time_series_pre, covariates_pre, key=key2
     )
@@ -266,7 +266,7 @@ def causal_impact(
         average=jnp.std(forecast_samples.mean(axis=1)), cumulative=jnp.std(forecast_samples.sum(axis=1))
     )
 
-    # Summary statistics of the absolute post-invervention effect
+    # Summary statistics of the absolute post-intervention effect
     effect_means = time_series_pos - forecast_means
     effects = time_series_pos - forecast_samples
     summary["abs_effect"] = Stats(average=effect_means.mean(axis=0).mean(), cumulative=effect_means.mean(axis=0).sum())

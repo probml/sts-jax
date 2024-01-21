@@ -21,19 +21,19 @@ from tensorflow_probability.substrates.jax.distributions import Uniform
 
 
 class ParamsSTSComponent(OrderedDict):
-    """A :class: 'OrderdedDict' with each item being an instance of :class: 'jax.DeviceArray'."""
+    """A :class: 'OrderedDict' with each item being an instance of :class: 'jax.DeviceArray'."""
 
     pass
 
 
 class ParamsSTS(OrderedDict):
-    """A :class: 'OrderdedDict' with each item being an instance of :class: 'OrderedDict'."""
+    """A :class: 'OrderedDict' with each item being an instance of :class: 'OrderedDict'."""
 
     pass
 
 
 class ParamPropertiesSTS(OrderedDict):
-    """A :class: 'OrderdedDict' with each item being an instance of :class: 'OrderedDict',
+    """A :class: 'OrderedDict' with each item being an instance of :class: 'OrderedDict',
     having the same pytree structure with 'ParamsSTS'.
     """
 
@@ -41,7 +41,7 @@ class ParamPropertiesSTS(OrderedDict):
 
 
 class ParamPriorsSTS(OrderedDict):
-    """A :class: 'OrderdedDict' with each item being an instance of :class: 'OrderedDict',
+    """A :class: 'OrderedDict' with each item being an instance of :class: 'OrderedDict',
     having the same pytree structure with 'ParamsSTS'.
     """
 
@@ -81,7 +81,7 @@ class STSComponent(ABC):
         component at time step $t$.
     * :attr: 'obs_mat' returns the observation (emission) matrix $H$ for the latent component.
     * :attr: 'cov_select_mat' returns the selecting matrix $R$ that expands the nonsingular
-        covariance matrix $Q[t]$ in each time step into a (possibly singular) convarince
+        covariance matrix $Q[t]$ in each time step into a (possibly singular) covariance
         matrix of shape (dim_state, dim_state).
     * :attr: 'name' returns the unique name of the latent component.
     * :attr: 'dim_obs' returns the dimension of the observation in each step of the observed
@@ -130,7 +130,7 @@ class STSComponent(ABC):
         Args:
             params: parameters of the latent component, having the same tree structure with
             self.params.
-            t: time point at which the transition matrix is to be evaluted.
+            t: time point at which the transition matrix is to be evaluated.
 
         Returns:
             transition matrix, $F[t]$, of the latent component at time step $t$
@@ -145,7 +145,7 @@ class STSComponent(ABC):
         Args:
             params: parameters of the latent component, having the same tree structure with
             self.params.
-            t: time point at which the transition matrix is to be evaluted.
+            t: time point at which the transition matrix is to be evaluated.
 
         Returns:
             nonsingular covariance matrix, $Q[t]$, of the latent component at time step $t$
@@ -162,7 +162,7 @@ class STSComponent(ABC):
     @abstractmethod
     def cov_select_mat(self) -> Float[Array, "dim_state rank_state"]:
         r"""Returns the selecting matrix $R$ that expands the nonsingular covariance matrix
-            $Q[t]$ in each time step into a (possibly singular) convarince matrix of shape
+            $Q[t]$ in each time step into a (possibly singular) covariance matrix of shape
             (dim_state, dim_state).
 
         Returns:
@@ -230,11 +230,11 @@ class STSRegression(ABC):
     def get_reg_value(
         self, params: ParamsSTSComponent, covariates: Float[Array, "num_timesteps dim_covariates"]
     ) -> Float[Array, "num_timesteps dim_obs"]:
-        r"""Returns the sequence of values of the regression model evaluted at the
+        r"""Returns the sequence of values of the regression model evaluated at the
             given parameters and the sequence of covariates.
 
         Args:
-            params: parameters on which the regression model is to be evalueated.
+            params: parameters on which the regression model is to be evaluated.
             covariates: sequence of covariates at which the regression model is to be evaluated.
 
         Raises:
@@ -249,7 +249,7 @@ class STSRegression(ABC):
 
 
 class LocalLinearTrend(STSComponent):
-    r"""The local linear trend component of the structual time series (STS) model
+    r"""The local linear trend component of the structural time series (STS) model
 
     The latent state has two parts $[level, slope]$, having dimension 2 * dim_obs.
     The dynamics is:
@@ -451,7 +451,7 @@ class Autoregressive(STSComponent):
 class SeasonalDummy(STSComponent):
     r"""The (dummy) seasonal component of the structual time series (STS) model
 
-    Since at any step $t$ the seasonal effect has following constraint
+    Since at any step $t$ the seasonal effect has the following constraint
 
     $$sum_{j=1}^{num_seasons} s_{t-j} = 0 $$,
 
@@ -571,7 +571,7 @@ class SeasonalDummy(STSComponent):
 
 
 class SeasonalTrig(STSComponent):
-    r"""The trigonometric seasonal component of the structual time series (STS) model.
+    r"""The trigonometric seasonal component of the structural time series (STS) model.
 
     The seasonal effect (random) of next time step takes the form:
 
@@ -589,7 +589,7 @@ class SeasonalTrig(STSComponent):
         distribution with mean zeros and a common covariance $drift_cov$ for all $j$ and $t$.
 
     The latent state corresponding to the seasonal component has dimension $(s-1) * dim_obs$.
-    If $s$ is odd, then $s-1 = 2 * (s-1)/2$, which means thare are $j = 1,...,(s-1)/2$ blocks.
+    If $s$ is odd, then $s-1 = 2 * (s-1)/2$, which means there are $j = 1,...,(s-1)/2$ blocks.
     If $s$ is even, then $s-1 = 2 * (s/2) - 1$, which means there are $j = 1,...(s/2)$ blocks,
     but we remove the last dimension in this case since this part does not play role in the
     observation.

@@ -49,10 +49,10 @@ def fit_vi(
     which is achieved by written KL(q || p) as expectation over standard normal distribution
     so a sample from q is obstained by
     s = z * exp(log_sigma_k) + mu_k,
-    where z is a sample from the standard multivarate normal distribtion.
+    where z is a sample from the standard multivariate normal distribution.
 
     Args:
-        sample_size (int): number of samples to be returned from the fitted approxiamtion q.
+        sample_size (int): number of samples to be returned from the fitted approximation q.
         M (int): number of fixed samples from q used in evaluation of ELBO.
 
     Returns:
