@@ -75,12 +75,13 @@ Internally, the STS model is converted to the corresponding state space model (S
 and learning of parameters are performed on the SSM.
 If the observation $Y_t$ follows a Gaussian distribution, the inference of latent variables
 $Z_{1:T}$ (gven the parameters) is based on the 
-[Kalman filter]((https://github.com/probml/dynamax/tree/main/dynamax/linear_gaussian_ssm).
+[Kalman filter](https://github.com/probml/dynamax/tree/main/dynamax/linear_gaussian_ssm).
 Alternatively, if the observation $Y_t$ follows Poisson distribution, with
 a mean given by $E[Y_t|Z_t] = e^{H_t Z_t + u_t}$, the inference of the
 latent variables $Z_{1:t}$ is based on a generalization of the extended
-Kalman filter, which we will the
-[conditional moment Gaussian filter](https://github.com/probml/dynamax/tree/main/dynamax/generalized_gaussian_ssm).
+Kalman filter, which we call the
+[conditional moment Gaussian filter](https://github.com/probml/dynamax/tree/main/dynamax/generalized_gaussian_ssm),
+based on [Tronarp 2018](https://acris.aalto.fi/ws/portalfiles/portal/17669270/cm_parapub.pdf).
 
 The marginal likelihood of $Y_{1:T}$ conditioned on parameters can be evaluated as a 
 byproduct of the forwards filtering process.
