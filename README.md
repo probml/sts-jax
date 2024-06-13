@@ -113,7 +113,7 @@ We now build a model where the demand linearly depends on the temperature,
 but also has two seasonal components, and an auto-regressive component.
 
 ```python
-import sts_jax.structural_time_series.sts_model as sts
+import sts_jax.structural_time_series as sts
 
 hour_of_day_effect = sts.SeasonalDummy(num_seasons=24,
                                        name='hour_of_day_effect')
@@ -182,7 +182,7 @@ of this demo.
 
 
 ```python
-import sts_jax.structural_time_series.sts_model as sts
+import sts_jax.structural_time_series as sts
 
 # This example uses a synthetic dataset and the STS model contains only a
 # local linear trend component.
